@@ -8,6 +8,7 @@
   const HISTORY_KEY = 'random-tools:history';
 
   type HistoryEntry = { drawn: string; at: number };
+  type Phase = 'idle' | 'rumbling' | 'revealing' | 'done';
 
   let mounted = $state(false);
   let bucketText = $state('');
@@ -15,10 +16,16 @@
   let currentDraw = $state<string | null>(null);
   let history = $state<HistoryEntry[]>([]);
   let shareState = $state<'idle' | 'copied' | 'error'>('idle');
-  // Fade-in toggle: 0 → fade out (invisible) → flip to 1 → fade in.
-  // We start at 1 so the first draw after mount appears without flashing.
-  let fadeKey = $state(0);
-  let opacity = $state(1);
+
+  // Animation state machine.
+  // idle → rumbling → revealing → done → idle (when next draw fires)
+  let phase = $state<Phase>('idle');
+  let revealKey = $state(0); // bumped per draw so Svelte re-keys the result block.
+  let reducedMotion = $state(false);
+
+  // Tunables. ms values keep the loot-box feel without slowing spam-drawing.
+  const RUMBLE_MS = 800;
+  const REVEAL_MS = 450;
 
   // The parsed bucket is what `draw()` operates on (deduped, trimmed).
   const bucket = $derived(parseBucketInput(bucketText));
@@ -32,40 +39,44 @@
     return bucket.filter((item) => !drawnSet.has(item)).length;
   });
 
+  const isAnimating = $derived(phase === 'rumbling' || phase === 'revealing');
+
   function setMode(next: DrawMode): void {
     mode = next;
   }
 
   function runDraw(): void {
+    if (isAnimating) return; // belt-and-braces alongside the `disabled` attr.
+
     const items =
       mode === 'with'
         ? bucket
-        : bucket.filter(
-            (item) => !history.some((h) => h.drawn === item),
-          );
+        : bucket.filter((item) => !history.some((h) => h.drawn === item));
 
     if (items.length === 0) {
-      // Nothing to draw from — don't crash, don't update the result.
-      return;
+      return; // Nothing to draw from — don't crash, don't update the result.
     }
 
     const result = draw(items, { withReplacement: mode === 'with' });
     const drawn = String(result.drawn);
 
-    // Fade out the current result, swap, then fade in.
-    opacity = 0;
-    // schedule the swap + fade-in on the next tick so the opacity:0 frame
-    // actually paints first.
+    // Phase 1: rumbling mystery card. We don't touch currentDraw yet — the
+    // DOM still shows the previous draw (or null) until phase 2 swaps it.
+    phase = 'rumbling';
+
+    const rumbleTime = reducedMotion ? 0 : RUMBLE_MS;
+
     setTimeout(() => {
+      // Phase 2: swap to the new draw and run the reveal animation.
       currentDraw = drawn;
       history = [{ drawn, at: Date.now() }, ...history].slice(0, 10);
-      fadeKey++;
-      // tiny rAF-equivalent: nudge opacity up after the DOM has had a beat
-      // to apply opacity:0 to the new value.
+      revealKey++;
+      phase = 'revealing';
+
       setTimeout(() => {
-        opacity = 1;
-      }, 20);
-    }, 200);
+        phase = 'done';
+      }, reducedMotion ? 180 : REVEAL_MS);
+    }, rumbleTime);
   }
 
   function clearHistory(): void {
@@ -80,8 +91,6 @@
   }
 
   function resetBucket(): void {
-    // "Reset bucket" — pull the saved ORIGINAL bucket text back out of
-    // localStorage, drop the in-session draws from `history`.
     if (typeof window !== 'undefined') {
       try {
         const saved = window.localStorage.getItem(BUCKET_KEY);
@@ -92,14 +101,10 @@
     }
     history = [];
     currentDraw = null;
-    opacity = 1;
+    phase = 'idle';
   }
 
   function prefillBundesliga(): void {
-    // Replace the textarea contents with the current 1. Bundesliga clubs
-    // and clear history (the old draws are unrelated to the new contents).
-    // The textarea stays editable — the user can add/remove clubs freely.
-    // Mode is preserved.
     bucketText = BUNDESLIGA_OPTIONS;
     history = [];
   }
@@ -185,6 +190,12 @@
 
   onMount(() => {
     mounted = true;
+
+    // Respect users who get sick from animated motion.
+    if (typeof window.matchMedia === 'function') {
+      const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+      reducedMotion = mq.matches;
+    }
 
     // 1. URL hash wins over localStorage.
     const hash = window.location.hash;
@@ -315,7 +326,8 @@
     <button
       type="button"
       onclick={runDraw}
-      disabled={bucket.length === 0 ||
+      disabled={isAnimating ||
+        bucket.length === 0 ||
         (mode === 'without' && remaining === 0)}
       class="bg-accent text-accent-fg hover:opacity-90 disabled:text-muted disabled:bg-border inline-flex min-h-[56px] items-center rounded-xl px-6 py-4 text-lg font-semibold disabled:cursor-not-allowed"
     >
@@ -337,26 +349,44 @@
     </button>
   </div>
 
-  {#if currentDraw !== null}
-    {#key fadeKey}
+  <!--
+    Reveal block.
+    We render the mystery placeholder during the rumble phase (always, while
+    currentDraw may or may not yet be set) and swap to the actual result on
+    reveal. Re-keying on revealKey re-runs the entry animation each draw.
+  -->
+  {#if phase === 'rumbling'}
+    <section
+      aria-label="Drawing"
+      aria-live="polite"
+      class="draw-reveal"
+    >
+      <div class="mystery-card" data-testid="mystery-card">
+        <span class="mystery-glyph" aria-hidden="true">🎁</span>
+        <span class="sr-only">Drawing…</span>
+      </div>
+    </section>
+  {:else if currentDraw !== null}
+    {#key revealKey}
       <section
         aria-label="Current draw"
-        class="border-border rounded-xl border p-6 transition-opacity duration-200 ease-out"
-        style="opacity: {opacity}"
+        class="draw-reveal"
       >
-        <p class="text-muted text-xs font-semibold uppercase tracking-wide">
-          Drawn
-        </p>
-        <p class="text-fg mt-2 text-3xl font-semibold break-words">
-          {currentDraw}
-        </p>
-        <p class="text-muted mt-3 text-sm">
-          {#if mode === 'with'}
-            Bucket has {remaining} item{remaining === 1 ? '' : 's'}.
-          {:else}
-            Bucket has {remaining} remaining.
-          {/if}
-        </p>
+        <div class="result-card" data-testid="result-card">
+          <p class="text-muted text-xs font-semibold uppercase tracking-wide">
+            Drawn
+          </p>
+          <p class="result-text text-fg mt-3 text-4xl font-semibold break-words">
+            {currentDraw}
+          </p>
+          <p class="text-muted mt-4 text-sm">
+            {#if mode === 'with'}
+              Bucket has {remaining} item{remaining === 1 ? '' : 's'}.
+            {:else}
+              Bucket has {remaining} remaining.
+            {/if}
+          </p>
+        </div>
       </section>
     {/key}
   {:else if bucket.length === 0}
@@ -397,3 +427,237 @@
     </section>
   {/if}
 </div>
+
+<style>
+  /* Wrapper perspective for the result card's 3D flip.
+   * Sits between the section and the inner card so the rotateY has
+   * something to orbit. */
+  .draw-reveal {
+    perspective: 800px;
+  }
+
+  /* ─── Mystery card (rumble phase) ──────────────────────────────── */
+  .mystery-card {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 7rem;
+    padding: 1.5rem 2rem;
+    border-radius: 1rem;
+    border: 1px solid var(--border);
+    background:
+      linear-gradient(
+        135deg,
+        color-mix(in oklch, var(--accent-2-soft) 35%, var(--bg-elevated)) 0%,
+        var(--bg-elevated) 50%,
+        color-mix(in oklch, var(--accent-2-soft) 25%, var(--bg-elevated)) 100%
+      );
+    overflow: hidden;
+    animation:
+      mystery-rumble 800ms steps(20, end),
+      mystery-glow 800ms ease-in-out;
+    will-change: transform, box-shadow;
+  }
+
+  /* Shimmer sweep that drifts across the mystery card while it shakes. */
+  .mystery-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      100deg,
+      transparent 30%,
+      color-mix(in oklch, var(--accent-2-soft) 55%, transparent) 50%,
+      transparent 70%
+    );
+    transform: translateX(-100%);
+    animation: mystery-shimmer 900ms ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  .mystery-glyph {
+    position: relative;
+    font-size: 3rem;
+    line-height: 1;
+    filter: drop-shadow(
+      0 0 12px color-mix(in oklch, var(--accent-2-soft) 80%, transparent)
+    );
+    animation: mystery-glyph-pulse 600ms ease-in-out infinite;
+  }
+
+  @keyframes mystery-rumble {
+    /* 10 horizontal jitter cycles, ±3px, with a tiny vertical wobble. */
+    0%, 100% { transform: translate(0, 0); }
+    10%      { transform: translate(-3px, 1px); }
+    20%      { transform: translate( 3px, -1px); }
+    30%      { transform: translate(-3px, 1px); }
+    40%      { transform: translate( 3px, -1px); }
+    50%      { transform: translate(-3px, 0); }
+    60%      { transform: translate( 3px, 1px); }
+    70%      { transform: translate(-2px, -1px); }
+    80%      { transform: translate( 2px, 1px); }
+    90%      { transform: translate(-1px, 0); }
+  }
+
+  @keyframes mystery-glow {
+    0%, 100% {
+      box-shadow:
+        0 0 0 1px var(--border),
+        0 0 18px color-mix(in oklch, var(--accent-2-soft) 60%, transparent);
+    }
+    50% {
+      box-shadow:
+        0 0 0 1px var(--border),
+        0 0 36px color-mix(in oklch, var(--accent-2-soft) 90%, transparent);
+    }
+  }
+
+  @keyframes mystery-shimmer {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  @keyframes mystery-glyph-pulse {
+    0%, 100% { transform: scale(1);   opacity: 0.95; }
+    50%      { transform: scale(1.1); opacity: 1; }
+  }
+
+  /* ─── Result card (reveal phase) ───────────────────────────────── */
+  .result-card {
+    position: relative;
+    padding: 2rem 2.25rem;
+    border-radius: 1rem;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    text-align: center;
+    transform-origin: center center;
+    animation:
+      result-flip-in 450ms cubic-bezier(0.2, 0.9, 0.3, 1.2),
+      result-glow-burst 600ms ease-out;
+    will-change: transform, box-shadow, opacity;
+  }
+
+  /* Forest-green radial burst that flares behind the card on reveal. */
+  .result-card::before {
+    content: "";
+    position: absolute;
+    inset: -20%;
+    background: radial-gradient(
+      circle at center,
+      color-mix(in oklch, var(--accent) 55%, transparent) 0%,
+      transparent 60%
+    );
+    opacity: 0;
+    animation: result-burst 700ms ease-out;
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  .result-text {
+    /* Bouncy settle after the flip lands. */
+    animation: result-text-pop 420ms cubic-bezier(0.2, 1.5, 0.3, 1) 120ms both;
+    text-shadow: 0 0 24px color-mix(in oklch, var(--accent) 30%, transparent);
+    will-change: transform, opacity;
+  }
+
+  @keyframes result-flip-in {
+    0%   {
+      transform: rotateY(90deg) scale(0.7);
+      opacity: 0;
+    }
+    60%  {
+      opacity: 1;
+    }
+    100% {
+      transform: rotateY(0deg) scale(1);
+      opacity: 1;
+    }
+  }
+
+  @keyframes result-glow-burst {
+    0%   {
+      box-shadow:
+        0 0 0 1px var(--border),
+        0 0 0 color-mix(in oklch, var(--accent) 0%, transparent);
+    }
+    40%  {
+      box-shadow:
+        0 0 0 1px var(--border),
+        0 0 40px color-mix(in oklch, var(--accent) 70%, transparent);
+    }
+    100% {
+      box-shadow:
+        0 0 0 1px var(--border),
+        0 0 18px color-mix(in oklch, var(--accent) 35%, transparent);
+    }
+  }
+
+  @keyframes result-burst {
+    0%   { opacity: 0;   transform: scale(0.6); }
+    50%  { opacity: 0.9; transform: scale(1); }
+    100% { opacity: 0;   transform: scale(1.4); }
+  }
+
+  @keyframes result-text-pop {
+    0%   {
+      transform: scale(0.6);
+      opacity: 0;
+      letter-spacing: 0.1em;
+    }
+    70%  {
+      transform: scale(1.08);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(1);
+      opacity: 1;
+      letter-spacing: normal;
+    }
+  }
+
+  /* ─── Reduced motion ──────────────────────────────────────────────
+   * Strip the rumble and the flip entirely. The result card just fades
+   * in over 180ms. Mystery phase is skipped (already handled in script
+   * by zeroing RUMBLE_MS and REVEAL_MS), but if it ever rendered we'd
+   * just show a static glyph. */
+  @media (prefers-reduced-motion: reduce) {
+    .mystery-card {
+      animation: none;
+    }
+    .mystery-card::before {
+      animation: none;
+      display: none;
+    }
+    .mystery-glyph {
+      animation: none;
+    }
+    .result-card {
+      animation: result-fade-in 180ms ease-out;
+    }
+    .result-card::before {
+      animation: none;
+      display: none;
+    }
+    .result-text {
+      animation: none;
+      text-shadow: none;
+    }
+    @keyframes result-fade-in {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+  }
+
+  /* ─── Light mode compensation ─────────────────────────────────────
+   * On light backgrounds the forest glow is much softer. Bump the
+   * opacity / shadow intensity so the burst is still legible. */
+  :global(:root.light) .result-card {
+    box-shadow:
+      0 0 0 1px var(--border),
+      0 0 28px color-mix(in oklch, var(--accent) 35%, transparent);
+  }
+  :global(:root.light) .result-text {
+    text-shadow: 0 0 18px color-mix(in oklch, var(--accent) 45%, transparent);
+  }
+</style>
