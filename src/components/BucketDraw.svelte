@@ -16,6 +16,7 @@
   let currentDraw = $state<string | null>(null);
   let history = $state<HistoryEntry[]>([]);
   let shareState = $state<'idle' | 'copied' | 'error'>('idle');
+  let chipInput = $state('');
 
   // Animation state machine.
   // idle → rumbling → revealing → done → idle (when next draw fires)
@@ -91,14 +92,18 @@
   }
 
   function resetBucket(): void {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = window.localStorage.getItem(BUCKET_KEY);
-        if (saved !== null) bucketText = saved;
-      } catch {
-        // ignore
-      }
+    // If the bucket was already empty, "Reset" just clears (and keeps it
+    // empty). Otherwise it restores the canonical 18-club Bundesliga
+    // prefill — matches the user expectation that Reset means "undo my
+    // custom edits and start fresh."
+    if (bucketText.trim().length === 0) {
+      // No-op visually: the bucket is already empty.
+      history = [];
+      currentDraw = null;
+      phase = 'idle';
+      return;
     }
+    bucketText = BUNDESLIGA_OPTIONS;
     history = [];
     currentDraw = null;
     phase = 'idle';
@@ -107,6 +112,48 @@
   function prefillBundesliga(): void {
     bucketText = BUNDESLIGA_OPTIONS;
     history = [];
+  }
+
+  function removeChip(item: string): void {
+    // Rebuild bucketText without the removed item. We work in the parsed
+    // domain (preserve the rest of the ordering, trim empties) and write
+    // back to newline-separated form so the existing parseBucketInput
+    // contract is unchanged.
+    const next = bucket.filter((b) => b !== item);
+    bucketText = next.join('\n');
+  }
+
+  function commitChipInput(): void {
+    const raw = chipInput.trim();
+    if (!raw) return;
+    // Split on comma so users can paste "a, b, c" at once. Each piece
+    // gets its own chip; duplicates are silently dropped.
+    const pieces = raw
+      .split(',')
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+    if (pieces.length === 0) {
+      chipInput = '';
+      return;
+    }
+    const existing = new Set(bucket);
+    const additions = pieces.filter((p) => !existing.has(p));
+    if (additions.length > 0) {
+      const merged = [...bucket, ...additions];
+      bucketText = merged.join('\n');
+    }
+    chipInput = '';
+  }
+
+  function onChipKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      commitChipInput();
+    } else if (e.key === 'Backspace' && chipInput.length === 0 && bucket.length > 0) {
+      // Affordance: empty input + Backspace pops the last chip. Common
+      // tags-input UX. Silently skips if no chips.
+      bucketText = bucket.slice(0, -1).join('\n');
+    }
   }
 
   function formatTime(ts: number): string {
@@ -266,28 +313,54 @@
 
 <div class="space-y-6">
   <div class="block">
-    <span class="text-fg mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 text-sm font-medium">
-      <span class="min-w-0">
-        Bucket
-        <span class="text-muted font-normal">(one option per line)</span>
-      </span>
+    <div class="text-fg mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 text-sm font-medium">
+      <span class="min-w-0">Bucket</span>
       <button
         type="button"
         onclick={prefillBundesliga}
-        class="border-border text-fg hover:border-accent rounded-lg border px-3 py-1.5 text-sm font-medium"
+        class="border-border text-fg hover:border-accent rounded-lg border px-3 py-1.5 font-mono text-sm"
         aria-label="Prefill bucket with current 1. Bundesliga clubs"
       >
         Prefill Bundesliga
       </button>
-    </span>
-    <textarea
-      bind:value={bucketText}
-      rows="8"
-      placeholder={"Alice&#10;Bob&#10;Carol"}
-      class="text-base border-border bg-bg text-fg placeholder:text-muted w-full rounded-lg border px-3 py-2 focus:border-accent focus:outline-none"
-      style="font-size: 16px"
-      aria-label="Bucket options, one per line"
-    ></textarea>
+    </div>
+
+    <!--
+      Chip-list bucket. Each parsed option becomes a pill; the trailing
+      inline input appends new items on Enter / comma. Neutral surface
+      (elevated bg + border) — deliberately not in the result card's
+      forest/amber glow palette, so the reveal feels visually distinct.
+    -->
+    <div
+      class="chip-row border-border bg-bg-elevated flex min-h-[3rem] flex-wrap items-center gap-2 rounded-lg border px-3 py-2 focus-within:border-accent"
+      role="group"
+      aria-label="Bucket options"
+    >
+      {#each bucket as item (item)}
+        <span class="chip">
+          <span class="chip-label">{item}</span>
+          <button
+            type="button"
+            class="chip-remove"
+            aria-label={`Remove ${item}`}
+            onclick={() => removeChip(item)}
+          >×</button>
+        </span>
+      {/each}
+
+      {#if bucket.length === 0}
+        <span class="chip-placeholder">No options yet — type below or prefill</span>
+      {/if}
+
+      <input
+        type="text"
+        bind:value={chipInput}
+        onkeydown={onChipKeydown}
+        placeholder="+ Add option…"
+        aria-label="Add bucket option"
+        class="chip-input font-mono"
+      />
+    </div>
   </div>
 
   <div>
@@ -359,7 +432,7 @@
     <section
       aria-label="Drawing"
       aria-live="polite"
-      class="draw-reveal"
+      class="draw-reveal mx-auto max-w-2xl"
     >
       <div class="mystery-card" data-testid="mystery-card">
         <span class="mystery-glyph" aria-hidden="true">🎁</span>
@@ -370,16 +443,16 @@
     {#key revealKey}
       <section
         aria-label="Current draw"
-        class="draw-reveal"
+        class="draw-reveal mx-auto max-w-2xl"
       >
         <div class="result-card" data-testid="result-card">
-          <p class="text-muted text-xs font-semibold uppercase tracking-wide">
+          <p class="text-fg-muted font-mono text-xs font-semibold uppercase tracking-wider sm:text-sm">
             Drawn
           </p>
-          <p class="result-text text-fg mt-3 text-3xl font-semibold break-words sm:text-4xl">
+          <p class="result-text text-fg mt-3 text-5xl font-semibold break-words [overflow-wrap:anywhere] sm:text-6xl md:text-7xl">
             {currentDraw}
           </p>
-          <p class="text-muted mt-4 text-sm">
+          <p class="text-fg-muted font-mono mt-5 text-base sm:text-lg">
             {#if mode === 'with'}
               Bucket has {remaining} item{remaining === 1 ? '' : 's'}.
             {:else}
@@ -395,7 +468,7 @@
 
   {#if history.length > 0}
     <section aria-label="Draw history" class="space-y-2">
-      <h2 class="text-accent-2 text-sm font-semibold uppercase tracking-wide">
+      <h2 class="text-accent-2 font-mono text-sm font-semibold uppercase tracking-wide">
         <span aria-hidden="true">$ </span>Recent draws
       </h2>
       <ul class="space-y-1">
@@ -429,9 +502,102 @@
 </div>
 
 <style>
-  /* Wrapper perspective for the result card's 3D flip.
-   * Sits between the section and the inner card so the rotateY has
-   * something to orbit. */
+  /* ─── Chip list (bucket input) ──────────────────────────────────── */
+  .chip-row {
+    /* Let the input stretch as wide as the row allows while chips hug
+       their content. */
+    align-items: center;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 9999px;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.25;
+    color: var(--fg);
+    max-width: 100%;
+  }
+
+  /* On the dark theme the chip row already sits on bg-elevated, so the
+     chip background needs a slight lift to read as distinct. */
+  :global(:root:not([data-theme="light"])) .chip {
+    background: color-mix(in oklch, var(--bg-hover) 85%, var(--bg-elevated));
+  }
+
+  .chip-label {
+    /* Allow long names to wrap inside the chip so "Borussia
+       Mönchengladbach" doesn't blow up the row width. */
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .chip-remove {
+    /* Small circle button. Body font (per spec — tabular-nums only) so
+       the × glyph keeps its proportions; tabular-nums is irrelevant on
+       a × but harmless. */
+    font-variant-numeric: tabular-nums;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.125rem;
+    height: 1.125rem;
+    line-height: 1;
+    border-radius: 9999px;
+    background: transparent;
+    border: 0;
+    color: var(--fg-muted);
+    cursor: pointer;
+    font-size: 0.95rem;
+    padding: 0;
+    transition:
+      color var(--dur-fast) var(--ease-out),
+      background var(--dur-fast) var(--ease-out);
+  }
+  .chip-remove:hover,
+  .chip-remove:focus-visible {
+    color: var(--fg);
+    background: color-mix(in oklch, var(--bg-hover) 70%, transparent);
+  }
+
+  .chip-placeholder {
+    /* Empty-state affordance. Italic + dashed border so it reads as a
+       hint, not as data. */
+    color: var(--fg-disabled);
+    font-style: italic;
+    font-size: 0.875rem;
+    padding: 0.25rem 0.75rem;
+    border: 1px dashed var(--border);
+    border-radius: 9999px;
+  }
+
+  .chip-input {
+    /* Inline-add input. Short fixed-ish width that flexes if the row is
+       roomy. font-mono (Iosevka) per brand convention for typing
+       affordances. */
+    flex: 0 1 140px;
+    min-width: 8rem;
+    background: transparent;
+    border: 0;
+    outline: 0;
+    color: var(--fg);
+    font-size: 0.875rem;
+    padding: 0.375rem 0.25rem;
+    /* Strip the WebKit autofill yellow that would otherwise land on
+       a transparent input sitting on a coloured chip row. */
+    -webkit-text-fill-color: var(--fg);
+    box-shadow: none;
+    appearance: none;
+  }
+  .chip-input::placeholder {
+    color: var(--fg-meta);
+  }
+
+  /* ─── Reveal / result block ─────────────────────────────────────── */
   .draw-reveal {
     perspective: 800px;
   }
@@ -442,8 +608,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 7rem;
-    padding: 1.5rem 2rem;
+    min-height: 10rem;
+    padding: 2rem 2rem;
     border-radius: 1rem;
     border: 1px solid var(--border);
     background:
@@ -523,48 +689,87 @@
     50%      { transform: scale(1.1); opacity: 1; }
   }
 
-  /* ─── Result card (reveal phase) ───────────────────────────────── */
+  /* ─── Result card (reveal phase) ─────────────────────────────────
+   * Mario's B: the draw moment should feel like a full-screen beat.
+   * Generous padding, large min-height, stronger forest glow burst,
+   * subtle background tint behind, lifted scale entry. The loot-box
+   * 3D flip still plays on top. */
   .result-card {
     position: relative;
-    padding: 1.25rem 1rem;
+    padding: 2rem 1.5rem;
     border-radius: 1rem;
     border: 1px solid var(--border);
     background: var(--bg-elevated);
     text-align: center;
+    min-height: 40vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     transform-origin: center center;
     animation:
       result-flip-in 450ms cubic-bezier(0.2, 0.9, 0.3, 1.2),
-      result-glow-burst 600ms ease-out;
+      result-glow-burst 700ms ease-out;
     will-change: transform, box-shadow, opacity;
   }
 
   @media (min-width: 640px) {
     .result-card {
-      padding: 2rem 2.25rem;
+      padding: 3rem 3rem;
     }
   }
 
-  /* Forest-green radial burst that flares behind the card on reveal. */
+  /* Forest-green radial burst that flares behind the card on reveal.
+   * Bigger spread (inset -40%) and a longer-lived glow so the moment
+   * reads as "something special just happened." */
   .result-card::before {
     content: "";
     position: absolute;
-    inset: -20%;
+    inset: -40%;
     background: radial-gradient(
       circle at center,
-      color-mix(in oklch, var(--accent) 55%, transparent) 0%,
-      transparent 60%
+      color-mix(in oklch, var(--accent) 70%, transparent) 0%,
+      color-mix(in oklch, var(--accent) 25%, transparent) 35%,
+      transparent 70%
     );
     opacity: 0;
-    animation: result-burst 700ms ease-out;
+    animation: result-burst 900ms ease-out;
     pointer-events: none;
     z-index: -1;
+  }
+
+  /* Subtle forest-tinted background panel behind the card. Always
+   * present on .draw-reveal when the result phase is live; the parent
+   * <section> fades it in via the .has-result modifier. */
+  .draw-reveal {
+    position: relative;
+    border-radius: 1rem;
+  }
+  .draw-reveal::before {
+    content: "";
+    position: absolute;
+    inset: -1.5rem -0.5rem;
+    background:
+      radial-gradient(
+        ellipse at center,
+        color-mix(in oklch, var(--accent) 8%, transparent) 0%,
+        transparent 70%
+      );
+    border-radius: 1.25rem;
+    pointer-events: none;
+    z-index: -1;
+    opacity: 0;
+    animation: result-tint-fade 700ms ease-out forwards;
   }
 
   .result-text {
     /* Bouncy settle after the flip lands. */
     animation: result-text-pop 420ms cubic-bezier(0.2, 1.5, 0.3, 1) 120ms both;
-    text-shadow: 0 0 24px color-mix(in oklch, var(--accent) 30%, transparent);
+    text-shadow: 0 0 32px color-mix(in oklch, var(--accent) 40%, transparent);
     will-change: transform, opacity;
+    /* Slightly tighter than body for the larger display scale. */
+    letter-spacing: -0.015em;
+    line-height: 1.1;
   }
 
   @keyframes result-flip-in {
@@ -581,6 +786,8 @@
     }
   }
 
+  /* Stronger glow burst: 80px peak (vs the old 40px), with a wider
+   * fade-down so the halo lingers a beat longer. */
   @keyframes result-glow-burst {
     0%   {
       box-shadow:
@@ -590,19 +797,24 @@
     40%  {
       box-shadow:
         0 0 0 1px var(--border),
-        0 0 40px color-mix(in oklch, var(--accent) 70%, transparent);
+        0 0 80px color-mix(in oklch, var(--accent) 75%, transparent);
     }
     100% {
       box-shadow:
         0 0 0 1px var(--border),
-        0 0 18px color-mix(in oklch, var(--accent) 35%, transparent);
+        0 0 28px color-mix(in oklch, var(--accent) 40%, transparent);
     }
   }
 
   @keyframes result-burst {
-    0%   { opacity: 0;   transform: scale(0.6); }
+    0%   { opacity: 0;   transform: scale(0.5); }
     50%  { opacity: 0.9; transform: scale(1); }
-    100% { opacity: 0;   transform: scale(1.4); }
+    100% { opacity: 0;   transform: scale(1.5); }
+  }
+
+  @keyframes result-tint-fade {
+    0%   { opacity: 0; }
+    100% { opacity: 1; }
   }
 
   @keyframes result-text-pop {
@@ -618,7 +830,7 @@
     100% {
       transform: scale(1);
       opacity: 1;
-      letter-spacing: normal;
+      letter-spacing: -0.015em;
     }
   }
 
@@ -645,6 +857,10 @@
       animation: none;
       display: none;
     }
+    .draw-reveal::before {
+      animation: none;
+      opacity: 1;
+    }
     .result-text {
       animation: none;
       text-shadow: none;
@@ -661,9 +877,9 @@
   :global(:root.light) .result-card {
     box-shadow:
       0 0 0 1px var(--border),
-      0 0 28px color-mix(in oklch, var(--accent) 35%, transparent);
+      0 0 48px color-mix(in oklch, var(--accent) 40%, transparent);
   }
   :global(:root.light) .result-text {
-    text-shadow: 0 0 18px color-mix(in oklch, var(--accent) 45%, transparent);
+    text-shadow: 0 0 22px color-mix(in oklch, var(--accent) 50%, transparent);
   }
 </style>
