@@ -299,8 +299,8 @@
   {#if people.length > 0}
     <section aria-label="Pre-assigned pins" class="border-border rounded-xl border p-4 sm:p-6">
       <div class="flex items-center justify-between gap-2">
-        <h2 class="text-muted text-sm font-semibold uppercase tracking-wide">
-          Pre-assigned
+        <h2 class="text-accent-2 text-sm font-semibold uppercase tracking-wide">
+          <span aria-hidden="true">$ </span>Pre-assigned
         </h2>
         {#if validPins.length > 0}
           <button

@@ -1,17 +1,43 @@
 @import "tailwindcss";
 @import "./tokens.css";
-@import "@fontsource-variable/inter";
 
 /* Expose tokens as Tailwind v4 utilities.
  * `inline` keeps the values inline (CSS variables) instead of inlined at build time,
- * so utility classes like `bg-bg` and `text-muted` resolve to var(--bg) / var(--muted). */
+ * so utility classes like `bg-bg` and `text-fg-muted` resolve to var(--bg) / var(--fg-muted).
+ *
+ * Palette ported from /home/hermes/personal-brand/tokens/brand.css (v3.2). */
 @theme inline {
-  --color-bg: var(--bg);
-  --color-fg: var(--fg);
-  --color-muted: var(--muted);
-  --color-border: var(--border);
-  --color-accent: var(--accent);
-  --color-accent-fg: var(--accent-fg);
+  /* surfaces */
+  --color-bg:           var(--bg);
+  --color-bg-elevated:  var(--bg-elevated);
+  --color-bg-hover:     var(--bg-hover);
+
+  /* foreground */
+  --color-fg:           var(--fg);
+  --color-fg-muted:     var(--fg-muted);
+  --color-fg-meta:      var(--fg-meta);
+  --color-fg-disabled:  var(--fg-disabled);
+  /* legacy alias — components still use `text-muted` */
+  --color-muted:        var(--muted);
+
+  /* borders */
+  --color-border:        var(--border);
+  --color-border-strong: var(--border-strong);
+
+  /* accents — forest (primary) + amber (operator fingerprint) */
+  --color-accent:        var(--accent);
+  --color-accent-fg:     #FAFAFA;             /* white on forest, both themes */
+  --color-accent-soft:   var(--accent-soft);
+  --color-accent-tint:   var(--accent-tint);
+  --color-accent-2:      var(--accent-2);     /* amber — operator touch */
+  --color-accent-2-soft: var(--accent-2-soft);
+
+  /* fonts */
+  --font-display: var(--font-display);
+  --font-body:    var(--font-body);
+  --font-mono:    var(--font-mono);
+  /* legacy alias — global.css used `--font-sans` */
+  --font-sans:    var(--font-sans);
 }
 
 /* Base reset / defaults */
@@ -22,15 +48,37 @@
 }
 
 html {
-  font-family: var(--font-sans);
+  font-family: var(--font-body);
   -webkit-text-size-adjust: 100%;
+  font-feature-settings: "ss01", "ss02", "kern";
 }
 
 body {
   margin: 0;
   background-color: var(--bg);
   color: var(--fg);
-  font-family: var(--font-sans);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  transition: color 120ms var(--ease-out);
+}
+a:hover { color: var(--accent-300); }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
 }
