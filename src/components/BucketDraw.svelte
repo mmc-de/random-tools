@@ -18,6 +18,7 @@
   let history = $state<HistoryEntry[]>([]);
   let shareState = $state<'idle' | 'copied' | 'error'>('idle');
   let chipInput = $state('');
+  let clearedFlag = $state<'idle' | 'shown'>('idle');
 
   // Animation state machine.
   // idle → rumbling → revealing → done → idle (when next draw fires)
@@ -259,6 +260,25 @@
   function prefillBundesliga(): void {
     bucketText = BUNDESLIGA_OPTIONS;
     history = [];
+  }
+
+  function clearAll(): void {
+    // Slice 22: empty the bucket + history + current draw in one click.
+    // Disabled state in the template guards the no-op case, so this is a
+    // genuine "everything is already empty, do nothing" early return for
+    // belt-and-braces (e.g. rapid clicks). The bucket $effect wipes
+    // localStorage 'random-tools:bucket' via the existing write path;
+    // clearHistory() wipes 'random-tools:history'.
+    if (bucket.length === 0 && history.length === 0) return;
+    bucketText = '';
+    clearHistory();
+    currentDraw = null;
+    phase = 'idle';
+    // Brief "Cleared!" feedback label, same pattern as shareState.
+    clearedFlag = 'shown';
+    window.setTimeout(() => {
+      clearedFlag = 'idle';
+    }, 1500);
   }
 
   function removeChip(item: string): void {
@@ -566,6 +586,36 @@
         aria-label="Add bucket option"
         class="chip-input font-mono"
       />
+
+      <!--
+        Slice 22 (S): "Clear" wipes the entire bucket + history in one click.
+        Sits at the end of the chip-list row, right of "+ Add option…", so it
+        reads as a chip-row footer action rather than a section-level control.
+        Styled as a subtle muted text link (not a heavy button) — matches the
+        chip-row aesthetic. Disabled when there's nothing to clear (no
+        pointless click target). The `min-h-[32px] min-w-[44px]` keep the
+        touch area usable even though the visible label is tiny; an
+        `aria-label` carries the intent for screen readers. A short
+        "Cleared!" label fades in/out (aria-live="polite") using the same
+        pattern as the share-state feedback.
+      -->
+      <span
+        class="ml-auto inline-flex items-center gap-2"
+        aria-live="polite"
+      >
+        {#if clearedFlag === 'shown'}
+          <span class="text-accent text-xs font-medium">Cleared!</span>
+        {/if}
+        <button
+          type="button"
+          onclick={clearAll}
+          disabled={bucket.length === 0 && history.length === 0}
+          aria-label="Clear bucket and history"
+          class="text-muted hover:text-fg min-h-[32px] min-w-[44px] rounded px-2 text-xs underline-offset-2 transition-colors hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Clear
+        </button>
+      </span>
     </div>
   </div>
 
