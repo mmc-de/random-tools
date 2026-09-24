@@ -9,25 +9,24 @@
   const ROOMS_KEY = 'random-tools:rooms';
   const PINS_KEY = 'random-tools:pins';
 
+  const STEPPER_MAX = 50;
+
   let mounted = $state(false);
   let peopleText = $state('');
-  let roomsText = $state('');
+  // Rooms live as an array of cards now (slice 10). The textarea format
+  // (`Name` or `Name: capacity`, one per line) is still what gets persisted
+  // to localStorage and shared via URL hash — see `serializeRooms` / `parseRooms`.
+  let rooms = $state<Room[]>([]);
   let result = $state<Result>(null);
   let shareState = $state<'idle' | 'copied' | 'error'>('idle');
 
-  // Stepper count: number of auto-generated Room N lines the user has added
-  // via the +/- buttons. Initialized once on mount from the current textarea
-  // content; not kept in sync with manual edits (the textarea is the source
-  // of truth).
-  const STEPPER_MAX = 50;
-  let roomCount = $state(0);
-
   // Pins: keyed by person name, value is room name (empty = no pin).
   // Kept as the "user intent" — pruning happens at display time so the
-  // user doesn't lose pins while still typing in the textareas.
+  // user doesn't lose pins while still typing in the people textarea.
   let pins = $state<Record<string, string>>({});
 
-  // Parsed views (kept reactive so the Shuffle button reflects current input).
+  // Parsed view of people (the rooms section is now structured, no parsing
+  // needed for the cards themselves).
   const people = $derived(
     peopleText
       .split('\n')
@@ -35,12 +34,34 @@
       .filter(Boolean),
   );
 
-  const rooms = $derived(parseRooms(roomsText));
+  // "Final" rooms fed to assignRooms: each card gets a unique non-empty name
+  // (placeholder fill, then uniqueness dedupe). Capacities clamp 1..STEPPER_MAX.
+  const finalRooms = $derived.by((): Room[] => {
+    const taken = new Set<string>();
+    const out: Room[] = [];
+    for (let i = 0; i < rooms.length; i++) {
+      const r = rooms[i];
+      const baseName = (r.name ?? '').trim() || `Room ${i + 1}`;
+      let name = baseName;
+      if (taken.has(name)) {
+        let n = 2;
+        while (taken.has(`${baseName} (${n})`)) n++;
+        name = `${baseName} (${n})`;
+      }
+      taken.add(name);
+      const cap = Math.max(1, Math.min(STEPPER_MAX, Math.floor(r.capacity ?? 1)));
+      out.push({ name, capacity: cap });
+    }
+    return out;
+  });
 
-  // Set of currently-valid pins (referencing both a known person and a known room).
+  // Set of currently-valid pins (referencing both a known person and a known
+  // room). Note: pins track the room's *display* name, which equals the
+  // finalRooms name unless a card name is empty (then it falls back to "Room N").
+  // Rename follow-through happens at edit time — see `renameRoom`.
   const validPins = $derived.by((): Pin[] => {
     const peopleSet = new Set(people);
-    const roomNames = new Set(rooms.map((r) => r.name));
+    const roomNames = new Set(finalRooms.map((r) => r.name));
     const out: Pin[] = [];
     for (const [person, room] of Object.entries(pins)) {
       if (!room) continue;
@@ -54,6 +75,10 @@
   // Set of pinned person names — used for the 🔒 visual cue in results.
   const pinnedNames = $derived(new Set(validPins.map((p) => p.person)));
 
+  // --- Persisted rooms ↔ textarea-format helpers -----------------------
+  // The textarea format is "Name" or "Name: capacity", one per line. We keep
+  // writing to localStorage in that exact shape so existing users don't lose
+  // data (slice 6 / slice 7 customers).
   function parseRooms(input: string): Room[] {
     const out: Room[] = [];
     for (const raw of input.split('\n')) {
@@ -74,13 +99,105 @@
     return out;
   }
 
+  function serializeRooms(rs: readonly Room[]): string {
+    return rs
+      .map((r) => {
+        const cap = Math.max(1, Math.min(STEPPER_MAX, Math.floor(r.capacity ?? 1)));
+        // Only append capacity when the user explicitly set one (default 1
+        // stays implicit to keep the textarea tidy).
+        return cap === 1 ? r.name : `${r.name}: ${cap}`;
+      })
+      .join('\n');
+  }
+
+  // Find the next available "Room N" number for auto-add.
+  function nextRoomNumber(): number {
+    const re = /^Room (\d+)$/;
+    let max = 0;
+    for (const r of rooms) {
+      const m = (r.name ?? '').trim().match(re);
+      if (m) {
+        const n = Number(m[1]);
+        if (Number.isFinite(n) && n > max) max = n;
+      }
+    }
+    return max + 1;
+  }
+
+  function addRoom(): void {
+    if (rooms.length >= STEPPER_MAX) return;
+    const name = `Room ${nextRoomNumber()}`;
+    rooms = [...rooms, { name, capacity: 1 }];
+  }
+
+  function removeRoomAt(index: number): void {
+    if (index < 0 || index >= rooms.length) return;
+    const removed = rooms[index];
+    const removedName = (removed.name ?? '').trim() || `Room ${index + 1}`;
+    const newRooms = rooms.slice();
+    newRooms.splice(index, 1);
+    rooms = newRooms;
+    // Prune any pin that pointed at the removed room. We use the *placeholder*
+    // name because that's what the pin stored while the field was empty.
+    let changed = false;
+    const next: Record<string, string> = {};
+    for (const [person, room] of Object.entries(pins)) {
+      if (room === removedName) {
+        changed = true;
+        continue;
+      }
+      next[person] = room;
+    }
+    if (changed) pins = next;
+  }
+
+  function updateRoomName(index: number, newName: string): void {
+    if (index < 0 || index >= rooms.length) return;
+    const oldRoom = rooms[index];
+    const oldName = (oldRoom.name ?? '').trim() || `Room ${index + 1}`;
+    const trimmed = newName.trim();
+    const newDisplay = trimmed === '' ? `Room ${index + 1}` : trimmed;
+    if (oldName === newDisplay) {
+      // Only the (possibly empty) raw value changed — write through.
+      const next = rooms.slice();
+      next[index] = { ...oldRoom, name: trimmed };
+      rooms = next;
+      return;
+    }
+    // Rename follow-through: rewrite every pin that pointed at the old name.
+    let pinsChanged = false;
+    const nextPins: Record<string, string> = {};
+    for (const [person, room] of Object.entries(pins)) {
+      if (room === oldName) {
+        nextPins[person] = newDisplay;
+        pinsChanged = true;
+      } else {
+        nextPins[person] = room;
+      }
+    }
+    const next = rooms.slice();
+    next[index] = { ...oldRoom, name: trimmed };
+    rooms = next;
+    if (pinsChanged) pins = nextPins;
+  }
+
+  function bumpCapacity(index: number, delta: number): void {
+    if (index < 0 || index >= rooms.length) return;
+    const cur = rooms[index];
+    const next = Math.max(1, Math.min(STEPPER_MAX, (cur.capacity ?? 1) + delta));
+    if (next === cur.capacity) return;
+    const out = rooms.slice();
+    out[index] = { ...cur, capacity: next };
+    rooms = out;
+  }
+
   function shuffle(): void {
-    result = assignRooms(people, rooms, validPins);
+    result = assignRooms(people, finalRooms, validPins);
   }
 
   function clearAll(): void {
     peopleText = '';
-    roomsText = '';
+    rooms = [];
     pins = {};
     result = null;
     shareState = 'idle';
@@ -104,37 +221,14 @@
   }
 
   /**
-   * Stepper handlers.
-   *
-   * The textareas stay the source of truth — these buttons just append/remove
-   * a line each click. `roomCount` tracks how many rooms this stepper has
-   * added in this session so the auto-name (`Room N`) is predictable.
-   */
-  function addRoom(): void {
-    if (roomCount >= STEPPER_MAX) return;
-    roomCount += 1;
-    const name = `Room ${roomCount}`;
-    // Append a single line. Preserve any existing trailing whitespace-free
-    // content (strip a trailing newline first so we add exactly one line).
-    const trimmed = roomsText.replace(/\n+$/, '');
-    roomsText = trimmed === '' ? name : `${trimmed}\n${name}`;
-  }
-
-  function removeRoom(): void {
-    if (roomCount <= 0) return;
-    const lines = roomsText.split('\n');
-    if (lines.length === 0) return;
-    lines.pop();
-    roomsText = lines.join('\n');
-    roomCount -= 1;
-  }
-
-  /**
    * URL-hash payload. Uses base64url over UTF-8 so non-ASCII names
    * (umlauts, accents, emoji) round-trip safely.
    *
    * v2 schema adds an optional `pins` field (Record<person, room>).
    * Old payloads without `pins` still decode fine.
+   *
+   * v3 (slice 10): `rooms` is still a textarea-format string for backward
+   * compat with anything that reads the hash (bookmarks, sharing).
    */
   function encodePayload(payload: {
     people: string;
@@ -184,7 +278,11 @@
 
   async function share(): Promise<void> {
     if (typeof window === 'undefined') return;
-    const encoded = encodePayload({ people: peopleText, rooms: roomsText, pins });
+    const encoded = encodePayload({
+      people: peopleText,
+      rooms: serializeRooms(rooms),
+      pins,
+    });
     const url = `${window.location.origin}${window.location.pathname}#data=${encoded}`;
     try {
       window.history.replaceState(null, '', url);
@@ -238,15 +336,8 @@
       const decoded = decodePayload(match[1]);
       if (decoded) {
         peopleText = decoded.people;
-        roomsText = decoded.rooms;
+        rooms = parseRooms(decoded.rooms);
         pins = decoded.pins;
-        // Seed the stepper count from the loaded rooms textarea line count,
-        // cap at STEPPER_MAX so the display never lies about an over-cap state.
-        const lines = decoded.rooms
-          .split('\n')
-          .map((s) => s.trim())
-          .filter(Boolean);
-        roomCount = Math.min(lines.length, STEPPER_MAX);
         return;
       }
     }
@@ -257,7 +348,7 @@
       const r = window.localStorage.getItem(ROOMS_KEY);
       const pinRaw = window.localStorage.getItem(PINS_KEY);
       if (p !== null) peopleText = p;
-      if (r !== null) roomsText = r;
+      if (r !== null) rooms = parseRooms(r);
       if (pinRaw !== null) {
         const parsed = JSON.parse(pinRaw) as unknown;
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
@@ -268,24 +359,19 @@
           pins = out;
         }
       }
-      if (roomsText !== '') {
-        const lines = roomsText
-          .split('\n')
-          .map((s) => s.trim())
-          .filter(Boolean);
-        roomCount = Math.min(lines.length, STEPPER_MAX);
-      }
     } catch {
       // localStorage may be blocked (private mode, etc.). Skip silently.
     }
   });
 
-  // Persist on every keystroke. v1: simple, no debounce.
+  // Persist on every change. v1: simple, no debounce.
+  // The rooms array is serialized back to the textarea format so the on-disk
+  // shape matches what older slices wrote (slice 6 / slice 7).
   $effect(() => {
     if (!mounted) return;
     try {
       window.localStorage.setItem(PEOPLE_KEY, peopleText);
-      window.localStorage.setItem(ROOMS_KEY, roomsText);
+      window.localStorage.setItem(ROOMS_KEY, serializeRooms(rooms));
       window.localStorage.setItem(PINS_KEY, JSON.stringify(pins));
     } catch {
       // Ignore quota / blocked storage.
@@ -331,46 +417,84 @@
       <div class="text-fg mb-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-2 text-sm font-medium">
         <span class="min-w-0">
           Rooms
-          <span class="text-muted font-normal">(Name or "Name: capacity")</span>
+          <span class="text-muted font-normal">(click a card to rename)</span>
         </span>
-        <span class="inline-flex items-center" role="group" aria-label="Add or remove rooms">
-          <button
-            type="button"
-            onclick={removeRoom}
-            disabled={roomCount <= 0}
-            aria-label="Decrease rooms"
-            class="border-border text-fg hover:border-accent inline-flex min-h-[44px] items-center rounded-l-lg border bg-transparent px-3 py-2.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border"
-          >
-            <span aria-hidden="true">−</span>
-          </button>
-          <span
-            aria-live="polite"
-            aria-atomic="true"
-            class="text-fg border-border bg-bg min-h-[44px] min-w-[2.5rem] border-y px-3 py-2.5 text-center text-sm font-medium tabular-nums"
-          >
-            {roomCount}
-          </span>
-          <button
-            type="button"
-            onclick={addRoom}
-            disabled={roomCount >= STEPPER_MAX}
-            aria-label="Increase rooms"
-            class="border-border text-fg hover:border-accent inline-flex min-h-[44px] items-center rounded-r-lg border bg-transparent px-3 py-2.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border"
-          >
-            <span aria-hidden="true">+</span>
-          </button>
+        <span class="text-muted font-mono text-xs tabular-nums" aria-live="polite">
+          {rooms.length} / {STEPPER_MAX}
         </span>
       </div>
-      <label class="block">
-        <textarea
-          bind:value={roomsText}
-          rows="8"
-          placeholder="Room 101: 4&#10;Room 102&#10;Suite A: 2"
-          class="text-base border-border bg-bg text-fg placeholder:text-muted w-full rounded-lg border px-3 py-2 focus:border-accent focus:outline-none"
-          style="font-size: 16px"
-          aria-label="List of rooms, one per line, with optional capacity"
-        ></textarea>
-      </label>
+
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {#each rooms as room, i (i)}
+          {@const placeholder = `Room ${i + 1}`}
+          <div
+            class="border-border bg-bg-elevated relative rounded-lg border p-4"
+            data-testid="room-card"
+          >
+            <button
+              type="button"
+              onclick={() => removeRoomAt(i)}
+              aria-label={`Remove room ${(room.name ?? '').trim() || placeholder}`}
+              class="text-fg-muted hover:text-fg absolute top-2 right-2 inline-flex h-7 w-7 items-center justify-center rounded-full text-base leading-none"
+            >
+              ×
+            </button>
+
+            <input
+              type="text"
+              value={room.name ?? ''}
+              oninput={(e) => updateRoomName(i, (e.currentTarget as HTMLInputElement).value)}
+              {placeholder}
+              aria-label={`Room ${i + 1} name`}
+              class="text-fg placeholder:text-fg-disabled font-mono w-full bg-transparent border-0 pb-1 pr-7 text-base focus:border-b focus:border-accent focus:outline-none"
+              style="font-size: 16px"
+            />
+
+            <div class="mt-3 flex items-center justify-between gap-2">
+              <span class="text-fg-muted text-xs font-medium uppercase tracking-wide">
+                Capacity
+              </span>
+              <span class="inline-flex items-center gap-1" role="group" aria-label={`Capacity for ${(room.name ?? '').trim() || placeholder}`}>
+                <button
+                  type="button"
+                  onclick={() => bumpCapacity(i, -1)}
+                  disabled={(room.capacity ?? 1) <= 1}
+                  aria-label="Decrease capacity"
+                  class="text-fg-muted hover:text-fg hover:bg-bg-hover inline-flex h-8 w-8 items-center justify-center rounded-full text-base leading-none disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                >
+                  −
+                </button>
+                <span
+                  aria-live="polite"
+                  aria-atomic="true"
+                  class="text-fg font-mono inline-flex h-8 min-w-[2rem] items-center justify-center px-2 text-sm tabular-nums"
+                >
+                  {room.capacity ?? 1}
+                </span>
+                <button
+                  type="button"
+                  onclick={() => bumpCapacity(i, +1)}
+                  disabled={(room.capacity ?? 1) >= STEPPER_MAX}
+                  aria-label="Increase capacity"
+                  class="text-fg-muted hover:text-fg hover:bg-bg-hover inline-flex h-8 w-8 items-center justify-center rounded-full text-base leading-none disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                >
+                  +
+                </button>
+              </span>
+            </div>
+          </div>
+        {/each}
+
+        <button
+          type="button"
+          onclick={addRoom}
+          disabled={rooms.length >= STEPPER_MAX}
+          aria-label="Add room"
+          class="border-border text-fg-muted hover:text-fg hover:border-accent inline-flex min-h-[6rem] items-center justify-center rounded-lg border border-dashed bg-transparent px-3 py-2 font-mono text-sm disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          + Add room
+        </button>
+      </div>
     </div>
   </div>
 
@@ -392,7 +516,7 @@
         {/if}
       </div>
 
-      {#if rooms.length === 0}
+      {#if finalRooms.length === 0}
         <p class="text-muted mt-3 text-sm">
           Add at least one room to pin them.
         </p>
@@ -409,7 +533,7 @@
                 aria-label={`Pin ${person} to a room`}
               >
                 <option value="">— unassigned —</option>
-                {#each rooms as room (room.name)}
+                {#each finalRooms as room (room.name)}
                   <option value={room.name}>{room.name}</option>
                 {/each}
               </select>
