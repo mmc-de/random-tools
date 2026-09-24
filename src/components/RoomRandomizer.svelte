@@ -15,6 +15,13 @@
   let result = $state<Result>(null);
   let shareState = $state<'idle' | 'copied' | 'error'>('idle');
 
+  // Stepper count: number of auto-generated Room N lines the user has added
+  // via the +/- buttons. Initialized once on mount from the current textarea
+  // content; not kept in sync with manual edits (the textarea is the source
+  // of truth).
+  const STEPPER_MAX = 50;
+  let roomCount = $state(0);
+
   // Pins: keyed by person name, value is room name (empty = no pin).
   // Kept as the "user intent" — pruning happens at display time so the
   // user doesn't lose pins while still typing in the textareas.
@@ -94,6 +101,32 @@
 
   function clearPins(): void {
     pins = {};
+  }
+
+  /**
+   * Stepper handlers.
+   *
+   * The textareas stay the source of truth — these buttons just append/remove
+   * a line each click. `roomCount` tracks how many rooms this stepper has
+   * added in this session so the auto-name (`Room N`) is predictable.
+   */
+  function addRoom(): void {
+    if (roomCount >= STEPPER_MAX) return;
+    roomCount += 1;
+    const name = `Room ${roomCount}`;
+    // Append a single line. Preserve any existing trailing whitespace-free
+    // content (strip a trailing newline first so we add exactly one line).
+    const trimmed = roomsText.replace(/\n+$/, '');
+    roomsText = trimmed === '' ? name : `${trimmed}\n${name}`;
+  }
+
+  function removeRoom(): void {
+    if (roomCount <= 0) return;
+    const lines = roomsText.split('\n');
+    if (lines.length === 0) return;
+    lines.pop();
+    roomsText = lines.join('\n');
+    roomCount -= 1;
   }
 
   /**
@@ -207,6 +240,13 @@
         peopleText = decoded.people;
         roomsText = decoded.rooms;
         pins = decoded.pins;
+        // Seed the stepper count from the loaded rooms textarea line count,
+        // cap at STEPPER_MAX so the display never lies about an over-cap state.
+        const lines = decoded.rooms
+          .split('\n')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        roomCount = Math.min(lines.length, STEPPER_MAX);
         return;
       }
     }
@@ -227,6 +267,13 @@
           }
           pins = out;
         }
+      }
+      if (roomsText !== '') {
+        const lines = roomsText
+          .split('\n')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        roomCount = Math.min(lines.length, STEPPER_MAX);
       }
     } catch {
       // localStorage may be blocked (private mode, etc.). Skip silently.
@@ -280,20 +327,51 @@
       ></textarea>
     </label>
 
-    <label class="block">
-      <span class="text-fg mb-2 block text-sm font-medium">
-        Rooms
-        <span class="text-muted font-normal">(Name or "Name: capacity")</span>
-      </span>
-      <textarea
-        bind:value={roomsText}
-        rows="8"
-        placeholder="Room 101: 4&#10;Room 102&#10;Suite A: 2"
-        class="text-base border-border bg-bg text-fg placeholder:text-muted w-full rounded-lg border px-3 py-2 focus:border-accent focus:outline-none"
-        style="font-size: 16px"
-        aria-label="List of rooms, one per line, with optional capacity"
-      ></textarea>
-    </label>
+    <div class="block">
+      <div class="text-fg mb-2 flex items-center justify-between gap-2 text-sm font-medium">
+        <span>
+          Rooms
+          <span class="text-muted font-normal">(Name or "Name: capacity")</span>
+        </span>
+        <span class="inline-flex items-center" role="group" aria-label="Add or remove rooms">
+          <button
+            type="button"
+            onclick={removeRoom}
+            disabled={roomCount <= 0}
+            aria-label="Decrease rooms"
+            class="border-border text-fg hover:border-accent inline-flex min-h-[44px] items-center rounded-l-lg border bg-transparent px-3 py-2.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border"
+          >
+            <span aria-hidden="true">−</span>
+          </button>
+          <span
+            aria-live="polite"
+            aria-atomic="true"
+            class="text-fg border-border bg-bg min-h-[44px] min-w-[2.5rem] border-y px-3 py-2.5 text-center text-sm font-medium tabular-nums"
+          >
+            {roomCount}
+          </span>
+          <button
+            type="button"
+            onclick={addRoom}
+            disabled={roomCount >= STEPPER_MAX}
+            aria-label="Increase rooms"
+            class="border-border text-fg hover:border-accent inline-flex min-h-[44px] items-center rounded-r-lg border bg-transparent px-3 py-2.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border"
+          >
+            <span aria-hidden="true">+</span>
+          </button>
+        </span>
+      </div>
+      <label class="block">
+        <textarea
+          bind:value={roomsText}
+          rows="8"
+          placeholder="Room 101: 4&#10;Room 102&#10;Suite A: 2"
+          class="text-base border-border bg-bg text-fg placeholder:text-muted w-full rounded-lg border px-3 py-2 focus:border-accent focus:outline-none"
+          style="font-size: 16px"
+          aria-label="List of rooms, one per line, with optional capacity"
+        ></textarea>
+      </label>
+    </div>
   </div>
 
   {#if people.length > 0}
