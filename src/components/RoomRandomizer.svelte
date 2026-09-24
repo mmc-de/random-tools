@@ -328,8 +328,8 @@
     </label>
 
     <div class="block">
-      <div class="text-fg mb-2 flex items-center justify-between gap-2 text-sm font-medium">
-        <span>
+      <div class="text-fg mb-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-2 text-sm font-medium">
+        <span class="min-w-0">
           Rooms
           <span class="text-muted font-normal">(Name or "Name: capacity")</span>
         </span>

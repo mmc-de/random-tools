@@ -265,9 +265,9 @@
 </script>
 
 <div class="space-y-6">
-  <label class="block">
-    <span class="text-fg mb-2 flex items-center justify-between gap-3 text-sm font-medium">
-      <span>
+  <div class="block">
+    <span class="text-fg mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 text-sm font-medium">
+      <span class="min-w-0">
         Bucket
         <span class="text-muted font-normal">(one option per line)</span>
       </span>
@@ -288,7 +288,7 @@
       style="font-size: 16px"
       aria-label="Bucket options, one per line"
     ></textarea>
-  </label>
+  </div>
 
   <div>
     <span class="text-fg mb-2 block text-sm font-medium">Mode</span>
@@ -376,7 +376,7 @@
           <p class="text-muted text-xs font-semibold uppercase tracking-wide">
             Drawn
           </p>
-          <p class="result-text text-fg mt-3 text-4xl font-semibold break-words">
+          <p class="result-text text-fg mt-3 text-3xl font-semibold break-words sm:text-4xl">
             {currentDraw}
           </p>
           <p class="text-muted mt-4 text-sm">
@@ -526,7 +526,7 @@
   /* ─── Result card (reveal phase) ───────────────────────────────── */
   .result-card {
     position: relative;
-    padding: 2rem 2.25rem;
+    padding: 1.25rem 1rem;
     border-radius: 1rem;
     border: 1px solid var(--border);
     background: var(--bg-elevated);
@@ -536,6 +536,12 @@
       result-flip-in 450ms cubic-bezier(0.2, 0.9, 0.3, 1.2),
       result-glow-burst 600ms ease-out;
     will-change: transform, box-shadow, opacity;
+  }
+
+  @media (min-width: 640px) {
+    .result-card {
+      padding: 2rem 2.25rem;
+    }
   }
 
   /* Forest-green radial burst that flares behind the card on reveal. */
