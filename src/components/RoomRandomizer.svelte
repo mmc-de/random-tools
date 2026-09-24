@@ -4,6 +4,7 @@
 
   type Assigned = { person: string; room: string };
   type Result = { assigned: Assigned[]; unassigned: string[] } | null;
+  type Person = { name: string };
 
   const PEOPLE_KEY = 'random-tools:people';
   const ROOMS_KEY = 'random-tools:rooms';
@@ -12,7 +13,11 @@
   const STEPPER_MAX = 50;
 
   let mounted = $state(false);
-  let peopleText = $state('');
+  // People live as an array of cards (slice 11). The persisted shape is still
+  // a newline-separated string of names (no capacity syntax) — see
+  // `serializePeople` / `parsePeople`. localStorage + URL hash keep that
+  // exact format so existing users (slice 6..10) don't lose data.
+  let people = $state<Person[]>([]);
   // Rooms live as an array of cards now (slice 10). The textarea format
   // (`Name` or `Name: capacity`, one per line) is still what gets persisted
   // to localStorage and shared via URL hash — see `serializeRooms` / `parseRooms`.
@@ -22,17 +27,27 @@
 
   // Pins: keyed by person name, value is room name (empty = no pin).
   // Kept as the "user intent" — pruning happens at display time so the
-  // user doesn't lose pins while still typing in the people textarea.
+  // user doesn't lose pins while still typing in a person card.
   let pins = $state<Record<string, string>>({});
 
-  // Parsed view of people (the rooms section is now structured, no parsing
-  // needed for the cards themselves).
-  const people = $derived(
-    peopleText
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean),
-  );
+  // "Final" people fed to assignRooms / Pre-assigned: each card gets a
+  // unique non-empty name (placeholder fill, then uniqueness dedupe).
+  const finalPeople = $derived.by((): string[] => {
+    const taken = new Set<string>();
+    const out: string[] = [];
+    for (let i = 0; i < people.length; i++) {
+      const baseName = (people[i].name ?? '').trim() || `Person ${i + 1}`;
+      let name = baseName;
+      if (taken.has(name)) {
+        let n = 2;
+        while (taken.has(`${baseName} (${n})`)) n++;
+        name = `${baseName} (${n})`;
+      }
+      taken.add(name);
+      out.push(name);
+    }
+    return out;
+  });
 
   // "Final" rooms fed to assignRooms: each card gets a unique non-empty name
   // (placeholder fill, then uniqueness dedupe). Capacities clamp 1..STEPPER_MAX.
@@ -56,11 +71,12 @@
   });
 
   // Set of currently-valid pins (referencing both a known person and a known
-  // room). Note: pins track the room's *display* name, which equals the
-  // finalRooms name unless a card name is empty (then it falls back to "Room N").
-  // Rename follow-through happens at edit time — see `renameRoom`.
+  // room). Note: pins track the entity's *display* name, which equals the
+  // final{People,Rooms} name unless the field was empty (then it falls back
+  // to "Person N" / "Room N"). Rename follow-through happens at edit time —
+  // see `renamePerson` / `updateRoomName`.
   const validPins = $derived.by((): Pin[] => {
-    const peopleSet = new Set(people);
+    const peopleSet = new Set(finalPeople);
     const roomNames = new Set(finalRooms.map((r) => r.name));
     const out: Pin[] = [];
     for (const [person, room] of Object.entries(pins)) {
@@ -110,6 +126,39 @@
       .join('\n');
   }
 
+  // --- Persisted people ↔ newline-string helpers ----------------------
+  // People were a textarea in slices 0..10. Each card's `name` is just one
+  // string (no capacity). We keep the on-disk shape as `\n`-joined names so
+  // anyone who already has a value in localStorage / shared via URL hash
+  // still gets their list back.
+  function parsePeople(input: string): Person[] {
+    const out: Person[] = [];
+    for (const raw of input.split('\n')) {
+      const line = raw.trim();
+      if (!line) continue;
+      out.push({ name: line });
+    }
+    return out;
+  }
+
+  function serializePeople(ps: readonly Person[]): string {
+    return ps.map((p) => p.name).join('\n');
+  }
+
+  // Find the next available "Person N" number for auto-add.
+  function nextPersonNumber(): number {
+    const re = /^Person (\d+)$/;
+    let max = 0;
+    for (const p of people) {
+      const m = (p.name ?? '').trim().match(re);
+      if (m) {
+        const n = Number(m[1]);
+        if (Number.isFinite(n) && n > max) max = n;
+      }
+    }
+    return max + 1;
+  }
+
   // Find the next available "Room N" number for auto-add.
   function nextRoomNumber(): number {
     const re = /^Room (\d+)$/;
@@ -122,6 +171,63 @@
       }
     }
     return max + 1;
+  }
+
+  function addPerson(): void {
+    if (people.length >= STEPPER_MAX) return;
+    const name = `Person ${nextPersonNumber()}`;
+    people = [...people, { name }];
+  }
+
+  function removePersonAt(index: number): void {
+    if (index < 0 || index >= people.length) return;
+    const removed = people[index];
+    const removedName = (removed.name ?? '').trim() || `Person ${index + 1}`;
+    const next = people.slice();
+    next.splice(index, 1);
+    people = next;
+    // Drop any pin anchored to this person. We use the *placeholder* name
+    // because that's what the pin stored while the field was empty.
+    let changed = false;
+    const nextPins: Record<string, string> = {};
+    for (const [person, room] of Object.entries(pins)) {
+      if (person === removedName) {
+        changed = true;
+        continue;
+      }
+      nextPins[person] = room;
+    }
+    if (changed) pins = nextPins;
+  }
+
+  function updatePersonName(index: number, newName: string): void {
+    if (index < 0 || index >= people.length) return;
+    const oldPerson = people[index];
+    const oldName = (oldPerson.name ?? '').trim() || `Person ${index + 1}`;
+    const trimmed = newName.trim();
+    const newDisplay = trimmed === '' ? `Person ${index + 1}` : trimmed;
+    if (oldName === newDisplay) {
+      // Only the (possibly empty) raw value changed — write through.
+      const next = people.slice();
+      next[index] = { ...oldPerson, name: trimmed };
+      people = next;
+      return;
+    }
+    // Rename follow-through: rewrite every pin keyed by the old name.
+    let pinsChanged = false;
+    const nextPins: Record<string, string> = {};
+    for (const [person, room] of Object.entries(pins)) {
+      if (person === oldName) {
+        nextPins[newDisplay] = room;
+        pinsChanged = true;
+      } else {
+        nextPins[person] = room;
+      }
+    }
+    const next = people.slice();
+    next[index] = { ...oldPerson, name: trimmed };
+    people = next;
+    if (pinsChanged) pins = nextPins;
   }
 
   function addRoom(): void {
@@ -192,11 +298,11 @@
   }
 
   function shuffle(): void {
-    result = assignRooms(people, finalRooms, validPins);
+    result = assignRooms(finalPeople, finalRooms, validPins);
   }
 
   function clearAll(): void {
-    peopleText = '';
+    people = [];
     rooms = [];
     pins = {};
     result = null;
@@ -228,6 +334,9 @@
    * Old payloads without `pins` still decode fine.
    *
    * v3 (slice 10): `rooms` is still a textarea-format string for backward
+   * compat with anything that reads the hash (bookmarks, sharing).
+   *
+   * v4 (slice 11): `people` is still a `\n`-joined names string for backward
    * compat with anything that reads the hash (bookmarks, sharing).
    */
   function encodePayload(payload: {
@@ -279,7 +388,7 @@
   async function share(): Promise<void> {
     if (typeof window === 'undefined') return;
     const encoded = encodePayload({
-      people: peopleText,
+      people: serializePeople(people),
       rooms: serializeRooms(rooms),
       pins,
     });
@@ -335,7 +444,7 @@
     if (match) {
       const decoded = decodePayload(match[1]);
       if (decoded) {
-        peopleText = decoded.people;
+        people = parsePeople(decoded.people);
         rooms = parseRooms(decoded.rooms);
         pins = decoded.pins;
         return;
@@ -347,7 +456,7 @@
       const p = window.localStorage.getItem(PEOPLE_KEY);
       const r = window.localStorage.getItem(ROOMS_KEY);
       const pinRaw = window.localStorage.getItem(PINS_KEY);
-      if (p !== null) peopleText = p;
+      if (p !== null) people = parsePeople(p);
       if (r !== null) rooms = parseRooms(r);
       if (pinRaw !== null) {
         const parsed = JSON.parse(pinRaw) as unknown;
@@ -366,11 +475,12 @@
 
   // Persist on every change. v1: simple, no debounce.
   // The rooms array is serialized back to the textarea format so the on-disk
-  // shape matches what older slices wrote (slice 6 / slice 7).
+  // shape matches what older slices wrote (slice 6 / slice 7). Same goes for
+  // people — kept as `\n`-joined names.
   $effect(() => {
     if (!mounted) return;
     try {
-      window.localStorage.setItem(PEOPLE_KEY, peopleText);
+      window.localStorage.setItem(PEOPLE_KEY, serializePeople(people));
       window.localStorage.setItem(ROOMS_KEY, serializeRooms(rooms));
       window.localStorage.setItem(PINS_KEY, JSON.stringify(pins));
     } catch {
@@ -401,17 +511,56 @@
 
 <div class="space-y-6">
   <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-    <label class="block">
-      <span class="text-fg mb-2 block text-sm font-medium">People</span>
-      <textarea
-        bind:value={peopleText}
-        rows="8"
-        placeholder="Alice&#10;Bob&#10;Carol"
-        class="text-base border-border bg-bg text-fg placeholder:text-muted w-full rounded-lg border px-3 py-2 focus:border-accent focus:outline-none"
-        style="font-size: 16px"
-        aria-label="List of people, one per line"
-      ></textarea>
-    </label>
+    <div class="block">
+      <div class="text-fg mb-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-2 text-sm font-medium">
+        <span class="min-w-0">
+          People
+          <span class="text-muted font-normal">(click a card to rename)</span>
+        </span>
+        <span class="text-muted font-mono text-xs tabular-nums" aria-live="polite">
+          {people.length} / {STEPPER_MAX}
+        </span>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {#each people as person, i (i)}
+          {@const placeholder = `Person ${i + 1}`}
+          <div
+            class="border-border bg-bg-elevated relative rounded-lg border p-4"
+            data-testid="person-card"
+          >
+            <button
+              type="button"
+              onclick={() => removePersonAt(i)}
+              aria-label={`Remove person ${(person.name ?? '').trim() || placeholder}`}
+              class="text-fg-muted hover:text-fg absolute top-2 right-2 inline-flex h-7 w-7 items-center justify-center rounded-full text-base leading-none"
+            >
+              ×
+            </button>
+
+            <input
+              type="text"
+              value={person.name ?? ''}
+              oninput={(e) => updatePersonName(i, (e.currentTarget as HTMLInputElement).value)}
+              {placeholder}
+              aria-label={`Person ${i + 1} name`}
+              class="text-fg placeholder:text-fg-disabled font-mono w-full bg-transparent border-0 pb-1 pr-7 text-base focus:border-b focus:border-accent focus:outline-none"
+              style="font-size: 16px"
+            />
+          </div>
+        {/each}
+
+        <button
+          type="button"
+          onclick={addPerson}
+          disabled={people.length >= STEPPER_MAX}
+          aria-label="Add person"
+          class="border-border text-fg-muted hover:text-fg hover:border-accent inline-flex min-h-[5rem] items-center justify-center rounded-lg border border-dashed bg-transparent px-3 py-2 font-mono text-sm disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          + Add person
+        </button>
+      </div>
+    </div>
 
     <div class="block">
       <div class="text-fg mb-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-2 text-sm font-medium">
@@ -476,7 +625,7 @@
                   onclick={() => bumpCapacity(i, +1)}
                   disabled={(room.capacity ?? 1) >= STEPPER_MAX}
                   aria-label="Increase capacity"
-                  class="text-fg-muted hover:text-fg hover:bg-bg-hover inline-flex h-8 w-8 items-center justify-center rounded-full text-base leading-none disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                  class="text-fg-muted hover:text-fg hover:bg-bg-hover inline-flex h-8 w-8 items-center justify-center rounded-full text-base leading-none disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                 >
                   +
                 </button>
@@ -498,7 +647,7 @@
     </div>
   </div>
 
-  {#if people.length > 0}
+  {#if finalPeople.length > 0}
     <section aria-label="Pre-assigned pins" class="border-border rounded-xl border p-4 sm:p-6">
       <div class="flex items-center justify-between gap-2">
         <h2 class="text-accent-2 text-sm font-semibold uppercase tracking-wide">
@@ -522,7 +671,7 @@
         </p>
       {:else}
         <ul class="mt-3 space-y-2">
-          {#each people as person (person)}
+          {#each finalPeople as person (person)}
             <li class="flex items-center justify-between gap-3">
               <span class="text-fg truncate text-base">{person}</span>
               <select
