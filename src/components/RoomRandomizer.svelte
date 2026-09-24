@@ -60,10 +60,19 @@
   let shimmering = $state(false);
   let reducedMotion = $state(false);
 
-  // Pins: keyed by person name, value is room name (empty = no pin).
-  // Kept as the "user intent" — pruning happens at display time so the
-  // user doesn't lose pins while still typing in a person card.
-  let pins = $state<Record<string, string>>({});
+  // Pins: explicit list of {person, room} rows, one row per pin the user
+  // added. Default is empty — the user opts in via "+ Add pin". Each row
+  // starts with a stable numeric `id` so {#each} re-keys correctly on
+  // add/remove (otherwise removing a middle row re-keys everything after
+  // it and re-fires the fly-out transition on those rows).
+  //
+  // Slice 16: switched from Record<person, room> to Array<{person, room}>
+  // so the UI can show "no pins" by default. We dedup by person silently
+  // (the same person can only appear once; reassigning via the dropdown
+  // updates the existing row). Validation against the current people /
+  // rooms list happens in the `validPins` derived value below.
+  let nextPinId = $state(0);
+  let pins = $state<{ id: number; person: string; room: string }[]>([]);
 
   // "Final" people fed to assignRooms / Pre-assigned: each card gets a
   // unique non-empty name (placeholder fill, then uniqueness dedupe).
@@ -106,15 +115,22 @@
   });
 
   // Set of currently-valid pins (referencing both a known person and a known
-  // room). Note: pins track the entity's *display* name, which equals the
-  // final{People,Rooms} name unless the field was empty (then it falls back
-  // to "Person N" / "Room N"). Rename follow-through happens at edit time —
-  // see `renamePerson` / `updateRoomName`.
+  // room, with both fields filled). Empty / unknown entries are skipped at
+  // shuffle time; invalid rows still appear in the UI but are inert.
+  //
+  // Pins track the entity's *display* name, which equals the final{People,
+  // Rooms} name unless the field was empty (then it falls back to
+  // "Person N" / "Room N"). Rename follow-through happens at edit time —
+  // see `updatePersonName` / `updateRoomName` and the renumbering pass in
+  // validPins itself for removed / dedup'd rows.
   const validPins = $derived.by((): Pin[] => {
     const peopleSet = new Set(finalPeople);
     const roomNames = new Set(finalRooms.map((r) => r.name));
     const out: Pin[] = [];
-    for (const [person, room] of Object.entries(pins)) {
+    for (const row of pins) {
+      const person = (row.person ?? '').trim();
+      const room = (row.room ?? '').trim();
+      if (!person) continue;
       if (!room) continue;
       if (!peopleSet.has(person)) continue;
       if (!roomNames.has(room)) continue;
@@ -280,16 +296,8 @@
     people = next;
     // Drop any pin anchored to this person. We use the *placeholder* name
     // because that's what the pin stored while the field was empty.
-    let changed = false;
-    const nextPins: Record<string, string> = {};
-    for (const [person, room] of Object.entries(pins)) {
-      if (person === removedName) {
-        changed = true;
-        continue;
-      }
-      nextPins[person] = room;
-    }
-    if (changed) pins = nextPins;
+    const nextPins = pins.filter((p) => p.person !== removedName);
+    if (nextPins.length !== pins.length) pins = nextPins;
   }
 
   function updatePersonName(id: number, newName: string): void {
@@ -299,27 +307,19 @@
     const oldName = (oldPerson.name ?? '').trim() || `Person ${index + 1}`;
     const trimmed = newName.trim();
     const newDisplay = trimmed === '' ? `Person ${index + 1}` : trimmed;
-    if (oldName === newDisplay) {
-      // Only the (possibly empty) raw value changed — write through.
-      const next = people.slice();
-      next[index] = { ...oldPerson, name: trimmed };
-      people = next;
-      return;
-    }
-    // Rename follow-through: rewrite every pin keyed by the old name.
-    let pinsChanged = false;
-    const nextPins: Record<string, string> = {};
-    for (const [person, room] of Object.entries(pins)) {
-      if (person === oldName) {
-        nextPins[newDisplay] = room;
-        pinsChanged = true;
-      } else {
-        nextPins[person] = room;
-      }
-    }
     const next = people.slice();
     next[index] = { ...oldPerson, name: trimmed };
     people = next;
+    if (oldName === newDisplay) return;
+    // Rename follow-through: rewrite every pin keyed by the old name.
+    let pinsChanged = false;
+    const nextPins = pins.map((p) => {
+      if (p.person === oldName) {
+        pinsChanged = true;
+        return { ...p, person: newDisplay };
+      }
+      return p;
+    });
     if (pinsChanged) pins = nextPins;
   }
 
@@ -338,16 +338,8 @@
     rooms = newRooms;
     // Prune any pin that pointed at the removed room. We use the *placeholder*
     // name because that's what the pin stored while the field was empty.
-    let changed = false;
-    const next: Record<string, string> = {};
-    for (const [person, room] of Object.entries(pins)) {
-      if (room === removedName) {
-        changed = true;
-        continue;
-      }
-      next[person] = room;
-    }
-    if (changed) pins = next;
+    const nextPins = pins.filter((p) => p.room !== removedName);
+    if (nextPins.length !== pins.length) pins = nextPins;
   }
 
   function updateRoomName(id: number, newName: string): void {
@@ -357,27 +349,19 @@
     const oldName = (oldRoom.name ?? '').trim() || `Room ${index + 1}`;
     const trimmed = newName.trim();
     const newDisplay = trimmed === '' ? `Room ${index + 1}` : trimmed;
-    if (oldName === newDisplay) {
-      // Only the (possibly empty) raw value changed — write through.
-      const next = rooms.slice();
-      next[index] = { ...oldRoom, name: trimmed };
-      rooms = next;
-      return;
-    }
-    // Rename follow-through: rewrite every pin that pointed at the old name.
-    let pinsChanged = false;
-    const nextPins: Record<string, string> = {};
-    for (const [person, room] of Object.entries(pins)) {
-      if (room === oldName) {
-        nextPins[person] = newDisplay;
-        pinsChanged = true;
-      } else {
-        nextPins[person] = room;
-      }
-    }
     const next = rooms.slice();
     next[index] = { ...oldRoom, name: trimmed };
     rooms = next;
+    if (oldName === newDisplay) return;
+    // Rename follow-through: rewrite every pin that pointed at the old name.
+    let pinsChanged = false;
+    const nextPins = pins.map((p) => {
+      if (p.room === oldName) {
+        pinsChanged = true;
+        return { ...p, room: newDisplay };
+      }
+      return p;
+    });
     if (pinsChanged) pins = nextPins;
   }
 
@@ -399,7 +383,8 @@
   function clearAll(): void {
     people = [];
     rooms = [];
-    pins = {};
+    pins = [];
+    nextPinId = 0;
     result = null;
     shareState = 'idle';
     whatsappState = 'idle';
@@ -420,7 +405,48 @@
   }
 
   function clearPins(): void {
-    pins = {};
+    pins = [];
+  }
+
+  // Slice 16 (K): add / mutate / remove pin rows. Each row carries an
+  // internal `id` so the {#each} block can re-key on add/remove without
+  // re-firing transitions on neighbour rows.
+  function addPin(): void {
+    if (pins.length >= STEPPER_MAX) return;
+    pins = [...pins, { id: nextPinId++, person: '', room: '' }];
+  }
+
+  function removePinAt(id: number): void {
+    const before = pins.length;
+    const next = pins.filter((p) => p.id !== id);
+    if (next.length !== before) pins = next;
+  }
+
+  function updatePinPerson(id: number, person: string): void {
+    // Silent dedup: if the new person is already pinned in another row,
+    // update *that* row (so the user always sees exactly one entry per
+    // pinned person) and drop the row that just became a duplicate.
+    const trimmed = person.trim();
+    const conflict = trimmed
+      ? pins.find((p) => p.id !== id && p.person === trimmed)
+      : null;
+    if (conflict) {
+      // Update the conflicting row's room to whatever was in the row
+      // we're now merging into (i.e. swap their rooms). Simpler than
+      // deciding who wins: the user's most recent pick wins, so move
+      // the current row's room onto the conflict, then drop the current.
+      const currentRoom = pins.find((p) => p.id === id)?.room ?? '';
+      pins = pins
+        .filter((p) => p.id !== id)
+        .map((p) => (p.id === conflict.id ? { ...p, room: currentRoom } : p));
+      return;
+    }
+    pins = pins.map((p) => (p.id === id ? { ...p, person: trimmed } : p));
+  }
+
+  function updatePinRoom(id: number, room: string): void {
+    const trimmed = room.trim();
+    pins = pins.map((p) => (p.id === id ? { ...p, room: trimmed } : p));
   }
 
   /**
@@ -435,13 +461,22 @@
    *
    * v4 (slice 11): `people` is still a `\n`-joined names string for backward
    * compat with anything that reads the hash (bookmarks, sharing).
+   *
+   * v5 (slice 16): `pins` is now an array of `{person, room}` rows
+   * (`Pin[]`). On decode, legacy object payloads (v2..v4) are still
+   * accepted and normalized to the array form via Object.entries().
    */
+  type PinRow = { id: number; person: string; room: string };
   function encodePayload(payload: {
     people: string;
     rooms: string;
-    pins: Record<string, string>;
+    pins: PinRow[];
   }): string {
-    const json = JSON.stringify(payload);
+    // Strip the internal `id` from what's written — on the receiving
+    // side we hand out fresh ids. Keeps the payload small and avoids
+    // leaking ephemeral UI state into a shared link.
+    const wirePins = payload.pins.map(({ person, room }) => ({ person, room }));
+    const json = JSON.stringify({ ...payload, pins: wirePins });
     const bytes = new TextEncoder().encode(json);
     let bin = '';
     for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
@@ -451,7 +486,7 @@
 
   function decodePayload(
     encoded: string,
-  ): { people: string; rooms: string; pins: Record<string, string> } | null {
+  ): { people: string; rooms: string; pins: PinRow[] } | null {
     try {
       const padded = encoded.replace(/-/g, '+').replace(/_/g, '/');
       const bin = atob(padded + '==='.slice((padded.length + 3) % 4));
@@ -468,10 +503,32 @@
         typeof (parsed as { rooms: unknown }).rooms === 'string'
       ) {
         const p = parsed as { people: string; rooms: string; pins?: unknown };
-        const outPins: Record<string, string> = {};
-        if (p.pins && typeof p.pins === 'object' && !Array.isArray(p.pins)) {
+        const outPins: PinRow[] = [];
+        if (Array.isArray(p.pins)) {
+          for (const row of p.pins) {
+            if (
+              row &&
+              typeof row === 'object' &&
+              typeof (row as { person?: unknown }).person === 'string' &&
+              typeof (row as { room?: unknown }).room === 'string'
+            ) {
+              outPins.push({
+                id: nextPinId++,
+                person: (row as { person: string }).person,
+                room: (row as { room: string }).room,
+              });
+            }
+          }
+        } else if (p.pins && typeof p.pins === 'object') {
+          // Legacy v2..v4 Record<person, room> — normalize to array rows.
           for (const [k, v] of Object.entries(p.pins as Record<string, unknown>)) {
-            if (typeof v === 'string') outPins[k] = v;
+            if (typeof v === 'string') {
+              outPins.push({
+                id: nextPinId++,
+                person: k,
+                room: v,
+              });
+            }
           }
         }
         return { people: p.people, rooms: p.rooms, pins: outPins };
@@ -590,13 +647,31 @@
       if (r !== null) rooms = parseRooms(r);
       if (pinRaw !== null) {
         const parsed = JSON.parse(pinRaw) as unknown;
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          const out: Record<string, string> = {};
-          for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-            if (typeof v === 'string') out[k] = v;
+        const loaded: { id: number; person: string; room: string }[] = [];
+        if (Array.isArray(parsed)) {
+          for (const row of parsed) {
+            if (
+              row &&
+              typeof row === 'object' &&
+              typeof (row as { person?: unknown }).person === 'string' &&
+              typeof (row as { room?: unknown }).room === 'string'
+            ) {
+              loaded.push({
+                id: nextPinId++,
+                person: (row as { person: string }).person,
+                room: (row as { room: string }).room,
+              });
+            }
           }
-          pins = out;
+        } else if (parsed && typeof parsed === 'object') {
+          // Legacy v2..v4 Record<person, room> in localStorage.
+          for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+            if (typeof v === 'string') {
+              loaded.push({ id: nextPinId++, person: k, room: v });
+            }
+          }
         }
+        pins = loaded;
       }
     } catch {
       // localStorage may be blocked (private mode, etc.). Skip silently.
@@ -622,17 +697,6 @@
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
       e.preventDefault();
       void share();
-    }
-  }
-
-  function setPin(person: string, room: string): void {
-    if (room === '') {
-      // Unassign pin.
-      const { [person]: _drop, ...rest } = pins;
-      void _drop;
-      pins = rest;
-    } else {
-      pins = { ...pins, [person]: room };
     }
   }
 
@@ -826,13 +890,13 @@
     </div>
   </div>
 
-  {#if finalPeople.length > 0}
+  {#if finalPeople.length > 0 && finalRooms.length > 0}
     <section aria-label="Pre-assigned pins" class="border-border rounded-xl border p-4 sm:p-6">
       <div class="flex items-center justify-between gap-2">
-        <h2 class="text-accent-2 text-sm font-semibold uppercase tracking-wide">
-          <span aria-hidden="true">$ </span>Pre-assigned
+        <h2 class="text-accent-2 font-mono text-sm font-semibold uppercase tracking-wide">
+          Pre-assigned pins
         </h2>
-        {#if validPins.length > 0}
+        {#if pins.length > 0}
           <button
             type="button"
             onclick={clearPins}
@@ -844,31 +908,76 @@
         {/if}
       </div>
 
-      {#if finalRooms.length === 0}
-        <p class="text-muted mt-3 text-sm">
-          Add at least one room to pin them.
-        </p>
-      {:else}
-        <ul class="mt-3 space-y-2">
-          {#each finalPeople as person (person)}
-            <li class="flex items-center justify-between gap-3">
-              <span class="text-fg truncate text-base">{person}</span>
+      <ul class="mt-3 space-y-2">
+        {#each pins as row (row.id)}
+          {@const usedNames = new Set(pins.filter((p) => p.id !== row.id).map((p) => p.person))}
+          <li
+            class="border-border bg-bg-elevated flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"
+            in:fly={flyIn()}
+            out:fly={flyOut()}
+          >
+            <div class="grid min-w-0 flex-1 grid-cols-1 gap-2 sm:flex sm:items-center sm:gap-3">
               <select
-                value={pins[person] ?? ''}
-                onchange={(e) => setPin(person, (e.currentTarget as HTMLSelectElement).value)}
-                class="border-border bg-bg text-fg min-w-[140px] rounded-lg border px-3 py-2.5 text-base"
+                value={row.person}
+                onchange={(e) => updatePinPerson(row.id, (e.currentTarget as HTMLSelectElement).value)}
+                class="border-border bg-bg text-fg min-w-[140px] rounded-lg border px-3 py-2 text-base"
                 style="font-size: 16px"
-                aria-label={`Pin ${person} to a room`}
+                aria-label="Pinned person"
               >
-                <option value="">— unassigned —</option>
+                <option value="">— pick person —</option>
+                {#each finalPeople as person (person)}
+                  {#if !usedNames.has(person) || person === row.person}
+                    <option value={person}>{person}</option>
+                  {/if}
+                {/each}
+              </select>
+              <span class="text-fg-muted hidden text-base sm:inline" aria-hidden="true">→</span>
+              <select
+                value={row.room}
+                onchange={(e) => updatePinRoom(row.id, (e.currentTarget as HTMLSelectElement).value)}
+                class="border-border bg-bg text-fg min-w-[140px] rounded-lg border px-3 py-2 text-base"
+                style="font-size: 16px"
+                aria-label="Pinned room"
+              >
+                <option value="">— pick room —</option>
                 {#each finalRooms as room (room.name)}
                   <option value={room.name}>{room.name}</option>
                 {/each}
               </select>
-            </li>
-          {/each}
-        </ul>
-      {/if}
+            </div>
+            <button
+              type="button"
+              onclick={() => removePinAt(row.id)}
+              aria-label="Remove pin"
+              class="text-fg-muted hover:text-fg rt-pressable inline-flex h-9 w-9 items-center justify-center self-end rounded-full text-base leading-none sm:self-auto"
+            >
+              ×
+            </button>
+          </li>
+        {/each}
+      </ul>
+
+      <button
+        type="button"
+        onclick={addPin}
+        disabled={pins.length >= STEPPER_MAX}
+        aria-label="Add pin"
+        class="border-border text-fg-muted hover:text-fg hover:border-accent rt-pressable mt-3 inline-flex w-full min-h-[3rem] items-center justify-center gap-2 rounded-lg border border-dashed bg-transparent px-3 py-2 font-mono text-sm disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <Icon name="plus" />
+        <span>Add pin</span>
+      </button>
+    </section>
+  {:else if finalPeople.length > 0}
+    <section aria-label="Pre-assigned pins" class="border-border rounded-xl border p-4 sm:p-6">
+      <div class="flex items-center justify-between gap-2">
+        <h2 class="text-accent-2 font-mono text-sm font-semibold uppercase tracking-wide">
+          Pre-assigned pins
+        </h2>
+      </div>
+      <p class="text-muted mt-3 text-sm">
+        Add at least one room to pin people.
+      </p>
     </section>
   {/if}
 

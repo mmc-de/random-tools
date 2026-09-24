@@ -484,7 +484,7 @@
   {#if history.length > 0}
     <section aria-label="Draw history" class="space-y-2">
       <h2 class="text-accent-2 font-mono text-sm font-semibold uppercase tracking-wide">
-        <span aria-hidden="true">$ </span>Recent draws
+        Recent draws
       </h2>
       <ul class="space-y-1">
         {#each history as entry (entry.at + ':' + entry.drawn)}
