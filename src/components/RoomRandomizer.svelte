@@ -1047,14 +1047,14 @@
       disabled={whatsappDisabled}
       title="Send via WhatsApp"
       class="border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[44px] items-center gap-2 rounded-lg border bg-transparent px-4 py-2.5 font-medium disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border"
-      aria-label="Send results via WhatsApp"
+      aria-label="Share results via WhatsApp"
     >
       {#if whatsappState === 'sent'}
         <Icon name="check" class="h-4 w-4 text-accent" />
         <span>Sent!</span>
       {:else}
         <Icon name="whatsapp" class="h-[18px] w-[18px]" />
-        <span>WhatsApp</span>
+        <span>Share via WhatsApp</span>
       {/if}
     </button>
     <span class="text-muted text-xs" aria-live="polite">
