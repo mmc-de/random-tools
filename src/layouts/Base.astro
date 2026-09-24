@@ -1,5 +1,6 @@
 ---
 import "~/styles/global.css";
+import ThemeToggle from "~/components/ThemeToggle.svelte";
 
 interface Props {
   title?: string;
@@ -20,8 +21,38 @@ const {
     <meta name="generator" content={Astro.generator} />
     <meta name="description" content={description} />
     <title>{title}</title>
+    {/* Runs synchronously in <head> so data-theme is set BEFORE body paints.
+        Using is:inline to bypass Astro's default module/async wrapping. */}
+    <script is:inline>
+      (function () {
+        try {
+          var stored = localStorage.getItem("random-tools:theme");
+          var theme =
+            stored === "dark" || stored === "light"
+              ? stored
+              : window.matchMedia("(prefers-color-scheme: light)").matches
+                ? "light"
+                : "dark";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (_) {
+          /* localStorage may be blocked (private mode); fall through
+             to the CSS @media (prefers-color-scheme) default. */
+        }
+      })();
+    </script>
   </head>
   <body class="bg-bg text-fg font-body">
     <slot />
+    <div class="theme-toggle-slot">
+      <ThemeToggle client:load />
+    </div>
+    <style>
+      .theme-toggle-slot {
+        position: fixed;
+        top: max(1rem, env(safe-area-inset-top));
+        right: max(1rem, env(safe-area-inset-right));
+        z-index: 50;
+      }
+    </style>
   </body>
 </html>
