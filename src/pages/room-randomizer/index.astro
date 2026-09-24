@@ -1,0 +1,17 @@
+---
+import Base from "~/layouts/Base.astro";
+import RoomRandomizer from "~/components/RoomRandomizer.svelte";
+---
+
+<Base title="Room randomizer · random-tools" description="Randomly assign people to rooms, honoring capacity.">
+  <main class="min-h-screen px-4 py-8 sm:py-12">
+    <div class="mx-auto max-w-4xl">
+      <a href="/random-tools/" class="text-muted hover:text-accent text-sm">← random-tools</a>
+      <h1 class="mt-4 text-2xl font-semibold tracking-tight">Room randomizer</h1>
+      <p class="text-muted mt-1 text-sm">One person per line. Rooms: "Name" or "Name: capacity".</p>
+      <div class="mt-6">
+        <RoomRandomizer client:load />
+      </div>
+    </div>
+  </main>
+</Base>
