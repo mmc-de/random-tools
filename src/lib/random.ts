@@ -109,35 +109,49 @@ function sampleUniform(
   people: readonly string[],
   rooms: readonly { name: string; capacity: number }[],
 ): AssignmentResult | null {
-  // Each person picks a slot in [0, totalCapacity). Shuffling the people
-  // gives a random permutation whose slot→person map is uniform.
-  const shuffled = shuffle(people);
+  const totalCapacity = rooms.reduce((s, r) => s + r.capacity, 0);
+  if (totalCapacity === 0) return null;
+
+  // Each person picks an INDEPENDENT random slot in [0, totalCapacity).
+  // Reject if any room is over capacity.
+  const occupancy = new Array<number>(rooms.length).fill(0);
+  // offsets[i] = first slot index that belongs to room i
   const offsets: number[] = [];
   let acc = 0;
   for (const r of rooms) {
     offsets.push(acc);
     acc += r.capacity;
   }
-  // occupancy[roomIdx] = how many slots inside that room's window were claimed
-  const occupancy = new Array<number>(rooms.length).fill(0);
+
+  // Assign each person a random slot
+  const slots = new Array<number>(people.length);
+  for (let i = 0; i < people.length; i++) {
+    slots[i] = uniformInt(totalCapacity);
+  }
 
   const assigned: Assigned[] = [];
-
-  for (let slot = 0; slot < shuffled.length; slot++) {
-    // Find which room owns this slot.
+  for (let i = 0; i < people.length; i++) {
+    const slot = slots[i];
+    // Find which room owns this slot
     let roomIdx = -1;
-    for (let i = 0; i < rooms.length; i++) {
-      const start = offsets[i];
-      const end = start + rooms[i].capacity;
+    for (let j = 0; j < rooms.length; j++) {
+      const start = offsets[j];
+      const end = start + rooms[j].capacity;
       if (slot >= start && slot < end) {
-        roomIdx = i;
+        roomIdx = j;
         break;
       }
     }
-    if (roomIdx === -1) return null;
-    if (occupancy[roomIdx] >= rooms[roomIdx].capacity) return null;
+    if (roomIdx === -1) {
+      // Should not happen if offsets are correct
+      return null;
+    }
+    if (occupancy[roomIdx] >= rooms[roomIdx].capacity) {
+      // Over capacity — reject this attempt
+      return null;
+    }
     occupancy[roomIdx]++;
-    assigned.push({ person: shuffled[slot], room: rooms[roomIdx].name });
+    assigned.push({ person: people[i], room: rooms[roomIdx].name });
   }
 
   return { assigned, unassigned: [] };
