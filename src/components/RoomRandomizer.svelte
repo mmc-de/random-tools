@@ -139,6 +139,43 @@
       : [],
   );
 
+  // Slice 15 (J): global capacity pill. Predictive — answers "is my setup
+  // even going to fit?" before the user shuffles. Three states:
+  //   OK    — people === spots (rare but handled)
+  //   Under — spots > people (room to grow) — forest (primary accent)
+  //   Over  — spots < people (some people will be unassigned) — amber
+  //           (operator fingerprint, perfect use for accent-2 per brand)
+  // Hidden entirely until the user has at least one person AND one room.
+  const totalCapacity = $derived(
+    finalRooms.reduce((s, r) => s + r.capacity, 0),
+  );
+  const capacityDelta = $derived(finalPeople.length - totalCapacity);
+  const capacityLabel = $derived.by(() => {
+    if (finalPeople.length === 0 || finalRooms.length === 0) return null;
+    if (capacityDelta === 0) {
+      return `${finalPeople.length} people · ${totalCapacity} spots · capacity matches`;
+    }
+    if (capacityDelta < 0) {
+      return `${finalPeople.length} people · ${totalCapacity} spots · ${-capacityDelta} free`;
+    }
+    return `${finalPeople.length} people · ${totalCapacity} spots · ${capacityDelta} will be unassigned`;
+  });
+
+  // Slice 15 (J): per-room fill counts. Built from the result.assigned
+  // array (post-shuffle truth), keyed by room name. Defensive: the map
+  // is seeded with every current room at 0 so a room with zero placements
+  // still renders an empty bar instead of disappearing from the card.
+  const roomFill = $derived.by(() => {
+    const map = new Map<string, number>();
+    for (const r of finalRooms) map.set(r.name, 0);
+    if (result) {
+      for (const a of result.assigned) {
+        map.set(a.room, (map.get(a.room) ?? 0) + 1);
+      }
+    }
+    return map;
+  });
+
   // --- Persisted rooms ↔ textarea-format helpers -----------------------
   // The textarea format is "Name" or "Name: capacity", one per line. We keep
   // writing to localStorage in that exact shape so existing users don't lose
@@ -683,6 +720,10 @@
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {#each rooms as room, i (room.id)}
           {@const placeholder = `Room ${i + 1}`}
+          {@const cap = room.capacity ?? 1}
+          {@const filled = result ? (roomFill.get((room.name ?? '').trim() || placeholder) ?? 0) : null}
+          {@const fillPct = filled === null ? 0 : Math.min(100, Math.round((filled / Math.max(1, cap)) * 100))}
+          {@const overfilled = filled !== null && filled > cap}
           <div
             class="rt-card border-border bg-bg-elevated relative rounded-lg border p-4"
             data-testid="room-card"
@@ -740,6 +781,34 @@
                 </button>
               </span>
             </div>
+
+            {#if filled !== null}
+              <div class="mt-3 space-y-1.5" data-testid="room-fill">
+                <div class="text-fg-muted flex items-center justify-between text-xs">
+                  <span class="font-medium uppercase tracking-wide">
+                    Filled
+                  </span>
+                  <span class="font-mono tabular-nums">
+                    {filled} / {cap}
+                  </span>
+                </div>
+                <div
+                  class="bg-bg-hover h-1.5 w-full overflow-hidden rounded-full"
+                  role="progressbar"
+                  aria-valuemin="0"
+                  aria-valuemax={cap}
+                  aria-valuenow={filled}
+                  aria-label={`Fill for ${(room.name ?? '').trim() || placeholder}`}
+                >
+                  <div
+                    class="rt-fill-bar h-full rounded-full"
+                    class:bg-accent={!overfilled}
+                    class:bg-accent-2={overfilled}
+                    style:width={`${fillPct}%`}
+                  ></div>
+                </div>
+              </div>
+            {/if}
           </div>
         {/each}
 
@@ -801,6 +870,32 @@
         </ul>
       {/if}
     </section>
+  {/if}
+
+  {#if capacityLabel}
+    {@const over = capacityDelta > 0}
+    {@const ok = capacityDelta === 0}
+    <div class="flex justify-center" aria-label="Capacity status">
+      <span
+        class="font-mono text-sm"
+        class:bg-accent-tint={!over}
+        class:text-accent={!over}
+        class:bg-accent-2-soft={over}
+        class:text-accent-2={over}
+        class:ring-1={ok}
+        class:ring-accent={ok}
+        class:bg-transparent={ok}
+        data-testid="capacity-badge"
+        data-state={over ? 'over' : ok ? 'ok' : 'under'}
+        role="status"
+        aria-live="polite"
+        style:padding="6px 12px"
+        style:border-radius="9999px"
+        style:display="inline-block"
+      >
+        {capacityLabel}
+      </span>
+    </div>
   {/if}
 
   <div class="flex flex-wrap items-center gap-3">
@@ -976,6 +1071,16 @@
     }
   }
 
+  /* ─── Per-room fill bar (slice 15) ──────────────────────────────
+   * GPU-friendly width transition (compositor-promoted property) so
+   * the bar animates smoothly after a shuffle without re-layout. */
+  .rt-fill-bar {
+    transition:
+      width 250ms var(--ease-out),
+      background-color 150ms var(--ease-out);
+    will-change: width;
+  }
+
   /* ─── Reduced motion ────────────────────────────────────────────
    * Strip the card lift, the shimmer sweep, and any non-essential
    * transform transitions. Button active:scale remains — it's below
@@ -990,6 +1095,10 @@
     }
     .rt-shimmer::after {
       display: none;
+    }
+    .rt-fill-bar {
+      transition: none;
+      will-change: auto;
     }
   }
 </style>
