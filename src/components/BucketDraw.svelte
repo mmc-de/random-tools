@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { draw, parseBucketInput, type DrawMode } from '~/lib/draw';
   import { BUNDESLIGA_OPTIONS } from '~/lib/bundesliga';
+  import Icon from '~/lib/icons.svelte';
 
   const BUCKET_KEY = 'random-tools:bucket';
   const MODE_KEY = 'random-tools:mode';
@@ -235,6 +236,10 @@
         document.body.removeChild(ta);
       }
       shareState = 'copied';
+      // Auto-revert so the button can be used again without manual reset.
+      window.setTimeout(() => {
+        shareState = 'idle';
+      }, 1500);
     } catch {
       shareState = 'error';
     }
@@ -323,10 +328,11 @@
       <button
         type="button"
         onclick={prefillBundesliga}
-        class="border-border text-fg hover:border-accent rounded-lg border px-3 py-1.5 font-mono text-sm"
+        class="border-border text-fg hover:border-accent rt-pressable inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 font-mono text-sm"
         aria-label="Prefill bucket with current 1. Bundesliga clubs"
       >
-        Prefill Bundesliga
+        <Icon name="football" class="text-base leading-none" />
+        <span>Prefill Bundesliga</span>
       </button>
     </div>
 
@@ -402,29 +408,33 @@
 
   <div class="flex flex-wrap items-center gap-3">
     <button
-      type="button"
-      onclick={runDraw}
-      disabled={isAnimating ||
-        bucket.length === 0 ||
-        (mode === 'without' && remaining === 0)}
-      class="bg-accent text-accent-fg hover:opacity-90 disabled:text-muted disabled:bg-border inline-flex min-h-[56px] items-center rounded-xl px-6 py-4 text-lg font-semibold disabled:cursor-not-allowed"
-    >
-      Draw
-    </button>
-    <button
-      type="button"
-      onclick={share}
-      class="border-border text-fg hover:border-accent inline-flex min-h-[44px] items-center rounded-lg border bg-transparent px-4 py-2.5 font-medium"
-      aria-label="Copy shareable link"
-    >
-      {#if shareState === 'copied'}
-        Copied!
-      {:else if shareState === 'error'}
-        Copy failed
-      {:else}
-        Share link
-      {/if}
-    </button>
+        type="button"
+        onclick={runDraw}
+        disabled={isAnimating ||
+          bucket.length === 0 ||
+          (mode === 'without' && remaining === 0)}
+        class="bg-accent text-accent-fg hover:opacity-90 disabled:text-muted disabled:bg-border rt-pressable inline-flex min-h-[56px] items-center gap-2 rounded-xl px-6 py-4 text-lg font-semibold disabled:cursor-not-allowed"
+      >
+        <Icon name="sparkles" class="h-5 w-5" />
+        <span>Draw</span>
+      </button>
+      <button
+        type="button"
+        onclick={share}
+        class="border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[44px] items-center gap-2 rounded-lg border bg-transparent px-4 py-2.5 font-medium"
+        aria-label="Copy shareable link"
+        aria-live="polite"
+      >
+        {#if shareState === 'copied'}
+          <Icon name="check" class="h-4 w-4 text-accent" />
+          <span>Copied!</span>
+        {:else if shareState === 'error'}
+          <span>Copy failed</span>
+        {:else}
+          <Icon name="link" />
+          <span>Share link</span>
+        {/if}
+      </button>
   </div>
 
   <!--
@@ -490,14 +500,14 @@
         <button
           type="button"
           onclick={clearHistory}
-          class="text-muted hover:text-fg inline-flex min-h-[44px] items-center text-sm font-medium"
+          class="text-muted hover:text-fg rt-pressable inline-flex min-h-[44px] items-center text-sm font-medium"
         >
           Clear history
         </button>
         <button
           type="button"
           onclick={resetBucket}
-          class="border-border text-fg hover:border-accent inline-flex min-h-[44px] items-center rounded-lg border bg-transparent px-4 py-2 text-sm font-medium"
+          class="border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[44px] items-center rounded-lg border bg-transparent px-4 py-2 text-sm font-medium"
         >
           Reset bucket
         </button>
@@ -886,5 +896,20 @@
   }
   :global(:root.light) .result-text {
     text-shadow: 0 0 22px color-mix(in oklch, var(--accent) 50%, transparent);
+  }
+
+  /* ─── Button press feedback (slice 12) ───────────────────────────
+   * Mirrors the rt-pressable utility used in RoomRandomizer — cheap
+   * scale-down on active, fast enough to read as a tap. Kept under
+   * 100ms; we don't disable it for prefers-reduced-motion because
+   * the magnitude is below the perceptual threshold. */
+  .rt-pressable {
+    transition: transform 100ms var(--ease-out);
+  }
+  .rt-pressable:active {
+    transform: scale(0.96);
+  }
+  .rt-pressable:disabled {
+    transform: none;
   }
 </style>
