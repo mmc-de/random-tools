@@ -1007,61 +1007,77 @@
     </div>
   {/if}
 
-  <div class="flex flex-wrap items-center gap-3">
-    <button
-      type="button"
-      onclick={shuffle}
-      class="bg-accent text-accent-fg hover:opacity-90 rt-pressable inline-flex min-h-[44px] items-center gap-2 rounded-lg px-4 py-2.5 font-medium"
-    >
-      <Icon name="shuffle" />
-      <span>Shuffle</span>
-    </button>
-    <button
-      type="button"
-      onclick={clearAll}
-      class="border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[44px] items-center gap-2 rounded-lg border bg-transparent px-4 py-2.5 font-medium"
-    >
-      <Icon name="trash" />
-      <span>Clear</span>
-    </button>
-    <button
-      type="button"
-      onclick={share}
-      class="border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[44px] items-center gap-2 rounded-lg border bg-transparent px-4 py-2.5 font-medium"
-      aria-label="Copy shareable link"
-      aria-live="polite"
-    >
-      {#if shareState === 'copied'}
-        <Icon name="check" class="h-4 w-4 text-accent" />
-        <span>Copied!</span>
-      {:else if shareState === 'error'}
-        <span>Copy failed</span>
-      {:else}
-        <Icon name="link" />
-        <span>Share link</span>
-      {/if}
-    </button>
-    <button
-      type="button"
-      onclick={shareWhatsApp}
-      disabled={whatsappDisabled}
-      title="Send via WhatsApp"
-      class="border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[44px] items-center gap-2 rounded-lg border bg-transparent px-4 py-2.5 font-medium disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border"
-      aria-label="Share results via WhatsApp"
-    >
-      {#if whatsappState === 'sent'}
-        <Icon name="check" class="h-4 w-4 text-accent" />
-        <span>Sent!</span>
-      {:else}
-        <Icon name="whatsapp" class="h-[18px] w-[18px]" />
-        <span>Share via WhatsApp</span>
-      {/if}
-    </button>
-    <span class="text-muted text-xs" aria-live="polite">
-      {#if result}
-        {result.assigned.length} assigned{#if result.unassigned.length > 0}, {result.unassigned.length} unassigned{/if}
-      {/if}
-    </span>
+  <!--
+    Slice 18 (O): sticky bottom action bar. The bar uses `position: sticky`
+    (not fixed) so it sits naturally in the document flow and only "sticks"
+    once the user scrolls past it. Frosted-glass backdrop (bg-bg/80 +
+    backdrop-blur-md) gives a visible separator without a hard edge. The
+    `-mx-4` cancels the parent <main>'s px-4 so the bar extends full-width
+    to the screen edges. `padding-bottom` honors iOS safe-area insets via
+    env(safe-area-inset-bottom). z-50 keeps it below the top-right
+    ThemeToggle (z-60) just in case their corners ever overlap on a tiny
+    viewport.
+  -->
+  <div
+    class="sticky bottom-0 z-50 -mx-4 border-border border-t bg-bg/80 px-4 pt-3 backdrop-blur-md"
+    style="padding-bottom: max(0.75rem, env(safe-area-inset-bottom));"
+  >
+    <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+      <button
+        type="button"
+        onclick={shuffle}
+        class="bg-accent text-accent-fg hover:opacity-90 rt-pressable inline-flex min-h-[44px] items-center gap-2 rounded-lg px-4 py-2.5 font-medium"
+      >
+        <Icon name="shuffle" />
+        <span>Shuffle</span>
+      </button>
+      <button
+        type="button"
+        onclick={clearAll}
+        class="border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[44px] items-center gap-2 rounded-lg border bg-transparent px-4 py-2.5 font-medium"
+      >
+        <Icon name="trash" />
+        <span>Clear</span>
+      </button>
+      <button
+        type="button"
+        onclick={share}
+        class="border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[44px] items-center gap-2 rounded-lg border bg-transparent px-4 py-2.5 font-medium"
+        aria-label="Copy shareable link"
+        aria-live="polite"
+      >
+        {#if shareState === 'copied'}
+          <Icon name="check" class="h-4 w-4 text-accent" />
+          <span>Copied!</span>
+        {:else if shareState === 'error'}
+          <span>Copy failed</span>
+        {:else}
+          <Icon name="link" />
+          <span>Share link</span>
+        {/if}
+      </button>
+      <button
+        type="button"
+        onclick={shareWhatsApp}
+        disabled={whatsappDisabled}
+        title="Send via WhatsApp"
+        class="border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[44px] items-center gap-2 rounded-lg border bg-transparent px-4 py-2.5 font-medium disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border"
+        aria-label="Share results via WhatsApp"
+      >
+        {#if whatsappState === 'sent'}
+          <Icon name="check" class="h-4 w-4 text-accent" />
+          <span>Sent!</span>
+        {:else}
+          <Icon name="whatsapp" class="h-[18px] w-[18px]" />
+          <span>Share via WhatsApp</span>
+        {/if}
+      </button>
+      <span class="text-muted text-xs" aria-live="polite">
+        {#if result}
+          {result.assigned.length} assigned{#if result.unassigned.length > 0}, {result.unassigned.length} unassigned{/if}
+        {/if}
+      </span>
+    </div>
   </div>
 
   {#if result}

@@ -406,8 +406,24 @@
     </div>
   </div>
 
-  <div class="flex flex-wrap items-center gap-3">
-    <button
+  <!--
+    Slice 18 (O): sticky bottom action bar. The bar uses `position: sticky`
+    (not fixed) so it sits naturally in the document flow and only "sticks"
+    once the user scrolls past it. Frosted-glass backdrop (bg-bg/80 +
+    backdrop-blur-md) gives a visible separator without a hard edge. The
+    `-mx-4` cancels the parent <main>'s px-4 so the bar extends full-width
+    to the screen edges. `padding-bottom` honors iOS safe-area insets via
+    env(safe-area-inset-bottom). z-50 keeps it below the top-right
+    ThemeToggle (z-60) just in case their corners ever overlap on a tiny
+    viewport. Reset / Clear history stay in the recent-draws section —
+    this bar holds only the primary Draw action + Share link.
+  -->
+  <div
+    class="sticky bottom-0 z-50 -mx-4 border-border border-t bg-bg/80 px-4 pt-3 backdrop-blur-md"
+    style="padding-bottom: max(0.75rem, env(safe-area-inset-bottom));"
+  >
+    <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+      <button
         type="button"
         onclick={runDraw}
         disabled={isAnimating ||
@@ -435,6 +451,7 @@
           <span>Share link</span>
         {/if}
       </button>
+    </div>
   </div>
 
   <!--
