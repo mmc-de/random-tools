@@ -71,6 +71,11 @@
       // Phase 2: swap to the new draw and run the reveal animation.
       currentDraw = drawn;
       history = [{ drawn, at: Date.now() }, ...history].slice(0, 10);
+      // Without replacement: persist the reduced bucket so chips + localStorage
+      // stay in sync. With replacement: nothing to remove.
+      if (mode !== 'with') {
+        bucketText = result.remaining.join('\n');
+      }
       revealKey++;
       phase = 'revealing';
 
