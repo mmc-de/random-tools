@@ -15,6 +15,15 @@ export type Assigned = {
   room: string;
 };
 
+/**
+ * Manual pre-assignment: force `person` into `room` before the random fill.
+ * The algorithm is forgiving — invalid pins are skipped, not fatal.
+ */
+export type Pin = {
+  person: string;
+  room: string;
+};
+
 export type AssignmentResult = {
   assigned: Assigned[];
   unassigned: string[];
@@ -74,10 +83,17 @@ export function shuffle<T>(items: readonly T[]): T[] {
  *       eventually gets a slot.
  *
  * Both paths emit `assigned` in random order.
+ *
+ * `pins` (optional): manual pre-assignments. Forgiving — invalid pins
+ * (unknown person, unknown room, same person twice, would exceed room
+ * capacity) are skipped, not fatal. Pinned assignments are placed first
+ * in `assigned` in input order, then the rest is greedy-filled into the
+ * remaining capacity.
  */
 export function assignRooms(
   people: readonly string[],
   rooms: readonly Room[],
+  pins?: readonly Pin[],
 ): AssignmentResult {
   const normRooms = rooms
     .map((r) => ({ name: r.name, capacity: Math.max(0, r.capacity ?? 1) }))
@@ -89,20 +105,59 @@ export function assignRooms(
     return { assigned: [], unassigned: peopleList };
   }
 
-  const totalCapacity = normRooms.reduce((s, r) => s + r.capacity, 0);
+  const peopleSet = new Set(peopleList);
+  const roomByName = new Map(normRooms.map((r) => [r.name, r]));
 
-  if (totalCapacity >= peopleList.length) {
-    const MAX_RETRY = 50;
-    for (let attempt = 0; attempt < MAX_RETRY; attempt++) {
-      const result = sampleUniform(peopleList, normRooms);
-      if (result) return result;
+  // Validate pins (forgiving).
+  const validPins: { person: string; room: string }[] = [];
+  const seenPerson = new Set<string>();
+  const usedSlots = new Map<string, number>(); // room name -> pinned count
+
+  if (pins) {
+    for (const pin of pins) {
+      if (!peopleSet.has(pin.person)) continue; // unknown person
+      if (!roomByName.has(pin.room)) continue; // unknown room
+      if (seenPerson.has(pin.person)) continue; // duplicate pin for same person
+      const cap = roomByName.get(pin.room)!.capacity;
+      const used = usedSlots.get(pin.room) ?? 0;
+      if (used >= cap) continue; // would exceed capacity
+      seenPerson.add(pin.person);
+      usedSlots.set(pin.room, used + 1);
+      validPins.push({ person: pin.person, room: pin.room });
     }
-    // Fall-through: rejection sampling kept rejecting (capacity ≈ people).
-    return greedyFill(peopleList, normRooms);
   }
 
-  // Insufficient capacity — best we can do.
-  return greedyFill(peopleList, normRooms);
+  // Build remaining-capacity view and unpinned-people view.
+  const remainingPeople = peopleList.filter((p) => !seenPerson.has(p));
+
+  const remainingRooms = normRooms
+    .map((r) => {
+      const used = usedSlots.get(r.name) ?? 0;
+      return { name: r.name, capacity: r.capacity - used };
+    })
+    .filter((r) => r.capacity > 0);
+
+  if (remainingPeople.length === 0) {
+    // Everyone is pinned — no random fill needed.
+    return {
+      assigned: validPins.map((p) => ({ person: p.person, room: p.room })),
+      unassigned: [],
+    };
+  }
+
+  // Skip rejection sampling once pins have constrained capacity: the
+  // distribution is no longer uniform and greedy already produces a
+  // capacity-respecting assignment.
+  const fill = greedyFill(remainingPeople, remainingRooms);
+
+  // Merge: pinned first (in input order), then filled (random order).
+  return {
+    assigned: [
+      ...validPins.map((p) => ({ person: p.person, room: p.room })),
+      ...fill.assigned,
+    ],
+    unassigned: fill.unassigned,
+  };
 }
 
 function sampleUniform(
