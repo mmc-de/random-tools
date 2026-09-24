@@ -25,6 +25,14 @@
   let revealKey = $state(0); // bumped per draw so Svelte re-keys the result block.
   let reducedMotion = $state(false);
 
+  // Modal state. Slice 19: the entire reveal plays inside a full-screen
+  // modal overlay so the draw moment takes over the viewport. modalVisible
+  // drives the fade-out animation (200ms) before modalOpen is cleared.
+  let modalOpen = $state(false);
+  let modalVisible = $state(false);
+  let closeButtonRef = $state<HTMLButtonElement | null>(null);
+  let drawButtonRef = $state<HTMLButtonElement | null>(null);
+
   // Tunables. ms values keep the loot-box feel without slowing spam-drawing.
   const RUMBLE_MS = 800;
   const REVEAL_MS = 450;
@@ -64,6 +72,9 @@
 
     // Phase 1: rumbling mystery card. We don't touch currentDraw yet — the
     // DOM still shows the previous draw (or null) until phase 2 swaps it.
+    // Slice 19: open the full-screen modal so the rumble + reveal play inside
+    // it. The in-page reveal below also still runs (history / inline state).
+    openModal();
     phase = 'rumbling';
 
     const rumbleTime = reducedMotion ? 0 : RUMBLE_MS;
@@ -84,6 +95,49 @@
         phase = 'done';
       }, reducedMotion ? 180 : REVEAL_MS);
     }, rumbleTime);
+  }
+
+  function openModal(): void {
+    modalOpen = true;
+    modalVisible = true;
+    if (typeof document !== 'undefined') {
+      document.body.style.overflow = 'hidden';
+    }
+    // Focus moves to the close button after the modal mounts.
+    queueMicrotask(() => {
+      closeButtonRef?.focus();
+    });
+  }
+
+  function closeModal(): void {
+    // Trigger fade-out, then clear modalOpen after the 200ms transition.
+    modalVisible = false;
+    window.setTimeout(() => {
+      modalOpen = false;
+    }, 200);
+    if (typeof document !== 'undefined') {
+      document.body.style.overflow = '';
+    }
+    // Return focus to the Draw button so keyboard users land somewhere useful.
+    queueMicrotask(() => {
+      drawButtonRef?.focus();
+    });
+  }
+
+  function onModalKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeModal();
+    }
+  }
+
+  function onBackdropClick(e: MouseEvent): void {
+    // Only close when the click lands on the backdrop itself, not on the
+    // inner card (which has stopPropagation-equivalent isolation via the
+    // separate elements).
+    if (e.target === e.currentTarget) {
+      closeModal();
+    }
   }
 
   function clearHistory(): void {
@@ -319,6 +373,28 @@
       // ignore
     }
   });
+
+  // Slice 19: Escape-to-close listener while the modal is open. Bound
+  // through an effect so it attaches/detaches with modalOpen state and
+  // we don't leak listeners if the component unmounts mid-reveal.
+  $effect(() => {
+    if (!modalOpen) return;
+    window.addEventListener('keydown', onModalKeydown);
+    return () => {
+      window.removeEventListener('keydown', onModalKeydown);
+    };
+  });
+
+  // Slice 19: defensive body-scroll-lock cleanup. If the component unmounts
+  // (e.g. nav away during an animation), restore overflow so the rest of
+  // the app doesn't get stuck behind a phantom lock.
+  $effect(() => {
+    return () => {
+      if (typeof document !== 'undefined') {
+        document.body.style.overflow = '';
+      }
+    };
+  });
 </script>
 
 <div class="space-y-6">
@@ -426,6 +502,7 @@
       <button
         type="button"
         onclick={runDraw}
+        bind:this={drawButtonRef}
         disabled={isAnimating ||
           bucket.length === 0 ||
           (mode === 'without' && remaining === 0)}
@@ -455,10 +532,64 @@
   </div>
 
   <!--
+    Slice 19: full-screen modal reveal. Opens when a draw fires and plays
+    the same rumble + flip phases inside it. The in-page reveal block
+    below still renders — it just sits behind the backdrop. z-[100] keeps
+    it above the ThemeToggle (z-60) and the sticky action bar (z-50).
+    Slice 20 will replace the inner loot-box with a Glücksrad; the modal
+    container (and the {#if revealVariant} slot below) is what survives.
+  -->
+  {#if modalOpen}
+    <div
+      class="draw-modal-backdrop fixed inset-0 z-[100] flex items-center justify-center bg-bg/85 backdrop-blur-md"
+      class:draw-modal-hidden={!modalVisible}
+      onclick={onBackdropClick}
+      role="presentation"
+    >
+      <div
+        class="draw-modal-card bg-bg-elevated border border-border mx-6 max-w-2xl rounded-2xl p-8 text-center shadow-2xl sm:p-12"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Drawn result"
+      >
+        <!-- Slice 20 hook: replace {#if} branches here when swapping in the wheel. -->
+        {#if phase === 'rumbling'}
+          <div class="mystery-card" data-testid="modal-mystery-card">
+            <span class="mystery-glyph" aria-hidden="true">🎁</span>
+            <span class="sr-only">Drawing…</span>
+          </div>
+        {:else if currentDraw !== null}
+          {#key revealKey}
+            <div class="result-card" data-testid="modal-result-card">
+              <p class="text-fg-muted font-mono text-xs font-semibold uppercase tracking-wider sm:text-sm">
+                Drawn
+              </p>
+              <p class="result-text text-accent mt-3 text-5xl font-semibold break-words [overflow-wrap:anywhere] sm:text-6xl md:text-7xl">
+                {currentDraw}
+              </p>
+              <button
+                type="button"
+                bind:this={closeButtonRef}
+                onclick={closeModal}
+                class="border-border text-fg hover:border-accent rt-pressable mt-8 inline-flex min-h-[44px] items-center rounded-lg border bg-transparent px-5 py-2 text-sm font-medium"
+              >
+                Done
+              </button>
+            </div>
+          {/key}
+        {/if}
+      </div>
+    </div>
+  {/if}
+
+  <!--
     Reveal block.
     We render the mystery placeholder during the rumble phase (always, while
     currentDraw may or may not yet be set) and swap to the actual result on
     reveal. Re-keying on revealKey re-runs the entry animation each draw.
+    Slice 19: the inline card still updates — it just lives behind the modal
+    backdrop. When the user closes the modal, the in-page state is already
+    correct.
   -->
   {#if phase === 'rumbling'}
     <section
@@ -928,5 +1059,74 @@
   }
   .rt-pressable:disabled {
     transform: none;
+  }
+
+  /* ─── Slice 19: full-screen modal reveal ──────────────────────────
+   * The backdrop fades in/out over 200ms when opened/closed. The card
+   * inside stays at full opacity so the loot-box animation remains the
+   * focal point. Forest tint sits on top of bg-bg/85 to give the modal
+   * a decisive feel without going opaque-flat. */
+  .draw-modal-backdrop {
+    background-color: color-mix(
+      in oklch,
+      var(--bg) 85%,
+      color-mix(in oklch, var(--accent-tint) 30%, transparent)
+    );
+    animation: draw-modal-fade-in 200ms var(--ease-out);
+  }
+  .draw-modal-hidden {
+    animation: draw-modal-fade-out 200ms var(--ease-out) forwards;
+  }
+  .draw-modal-card {
+    /* Soft forest-tinted glow so the modal card reads as part of the
+     * draw moment, not just a plain dialog. Same accent the loot-box
+     * result-card uses (slice 9), so slice 20's wheel can drop in
+     * without retuning. */
+    box-shadow:
+      0 0 0 1px var(--border),
+      0 0 48px color-mix(in oklch, var(--accent) 35%, transparent);
+  }
+
+  @keyframes draw-modal-fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  @keyframes draw-modal-fade-out {
+    from { opacity: 1; }
+    to   { opacity: 0; }
+  }
+
+  /* Inside the modal, the loot-box uses the same .mystery-card /
+   * .result-card classes as the in-page variant, so the slice-5
+   * rumble + slice-9 flip animations and reduced-motion override
+   * automatically apply. */
+  :global(.draw-modal-card .mystery-card) {
+    min-height: 8rem;
+  }
+  :global(.draw-modal-card .result-card) {
+    /* The modal supplies its own padding + border; the inner card
+     * just lays out its content. */
+    border: 0;
+    background: transparent;
+    padding: 0;
+    min-height: 0;
+  }
+  /* Modal owns the glow; the per-card ::before bursts would double
+   * up against the modal's own box-shadow. */
+  :global(.draw-modal-card .result-card::before),
+  :global(.draw-modal-card .draw-reveal::before) {
+    display: none;
+  }
+
+  /* Respect prefers-reduced-motion for the modal fade-in too. The
+   * inner card animations are already covered by the slice-5 block. */
+  @media (prefers-reduced-motion: reduce) {
+    .draw-modal-backdrop {
+      animation: none;
+    }
+    .draw-modal-hidden {
+      animation: none;
+      opacity: 0;
+    }
   }
 </style>
