@@ -15,6 +15,25 @@
 
   const STEPPER_MAX = 50;
 
+  // Canonical URL for this tool, baked in at build time from astro.config.mjs's
+  // `site:` + `base:` settings. Used to drop a "Open the tool:" link into the
+  // WhatsApp share text so recipients can land straight on the tool. Falls
+  // back to the current origin at runtime (covers dev / unusual build configs
+  // where import.meta.env.SITE might be undefined).
+  //
+  // Note: `BASE_URL` is always normalized to NO trailing slash (e.g. "/random-tools"),
+  // so we hard-code the slash between base and the route path.
+  const builtInToolUrl =
+    typeof import.meta.env.SITE === 'string' && import.meta.env.SITE
+      ? `${import.meta.env.SITE}${import.meta.env.BASE_URL || ''}/room-randomizer/`
+      : '';
+  const toolUrl = $derived(
+    builtInToolUrl ||
+      (typeof window !== 'undefined'
+        ? `${window.location.origin}/random-tools/room-randomizer/`
+        : ''),
+  );
+
   let mounted = $state(false);
   // People live as an array of cards (slice 11). The persisted shape is still
   // a newline-separated string of names (no capacity syntax) — see
@@ -463,7 +482,7 @@
   function shareWhatsApp(): void {
     if (typeof window === 'undefined') return;
     if (!result || result.assigned.length === 0) return;
-    const message = formatAssignmentForShare(result);
+    const message = formatAssignmentForShare(result, toolUrl);
     const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
     const opened = window.open(url, '_blank', 'noopener,noreferrer');
     if (!opened) {

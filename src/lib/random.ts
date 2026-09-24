@@ -186,16 +186,28 @@ function greedyFill(
  *
  *   _Unassigned: Dave_
  *
+ *   👉 Open the tool: https://example.com/room-randomizer/
+ *
  * The unassigned line is omitted entirely when there are none. The
- * function is pure and safe to call during SSR.
+ * optional `toolUrl` line is appended only when a non-empty URL is
+ * passed — callers that don't want the link (tests, alternative share
+ * surfaces) can simply omit it. The function is pure and safe to call
+ * during SSR.
  */
-export function formatAssignmentForShare(result: AssignmentResult): string {
+export function formatAssignmentForShare(
+  result: AssignmentResult,
+  toolUrl?: string,
+): string {
   const lines: string[] = ['🏠 Room assignments', ''];
   for (const a of result.assigned) {
     lines.push(`• ${a.person} → ${a.room}`);
   }
   if (result.unassigned.length > 0) {
     lines.push('', `_Unassigned: ${result.unassigned.join(', ')}_`);
+  }
+  const url = toolUrl?.trim();
+  if (url) {
+    lines.push('', `👉 Open the tool: ${url}`);
   }
   return lines.join('\n');
 }
