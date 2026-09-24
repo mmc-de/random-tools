@@ -21,6 +21,8 @@
 
   // Animation state machine.
   // idle → rumbling → revealing → done → idle (when next draw fires)
+  // Slice 20: the 'rumbling' phase is now a 200ms "wheel fade-in" beat —
+  // the wheel is the entire reveal, not a mystery card.
   let phase = $state<Phase>('idle');
   let revealKey = $state(0); // bumped per draw so Svelte re-keys the result block.
   let reducedMotion = $state(false);
@@ -32,10 +34,24 @@
   let modalVisible = $state(false);
   let closeButtonRef = $state<HTMLButtonElement | null>(null);
   let drawButtonRef = $state<HTMLButtonElement | null>(null);
+  let wheelGroupEl = $state<SVGGElement | null>(null);
+
+  // Slice 20: Glücksrad (wheel of fortune) state.
+  // `wheelItems` is the snapshot of bucket items the wheel renders (so a
+  // without-replacement draw that empties the bucket doesn't visually
+  // pop the segment list mid-spin). `wheelIndex` is the index of the
+  // drawn item inside `wheelItems` — that's the segment the wheel
+  // decelerates toward. `rotation` is the live CSS rotation in degrees
+  // applied to the wheel group; we set it in two steps to force the
+  // cubic-bezier transition to fire.
+  let wheelItems = $state<string[]>([]);
+  let wheelIndex = $state(0);
+  let rotation = $state(0);
 
   // Tunables. ms values keep the loot-box feel without slowing spam-drawing.
-  const RUMBLE_MS = 800;
-  const REVEAL_MS = 450;
+  const WHEEL_FADE_MS = 200; // brief beat so the wheel appears before spinning
+  const SPIN_MS = 4000; // cubic-bezier duration (see CSS .wheel-spin)
+  const REVEAL_MS = 500; // text reveal fade-in
 
   // The parsed bucket is what `draw()` operates on (deduped, trimmed).
   const bucket = $derived(parseBucketInput(bucketText));
@@ -69,32 +85,103 @@
 
     const result = draw(items, { withReplacement: mode === 'with' });
     const drawn = String(result.drawn);
+    const drawnIndex = items.indexOf(result.drawn as string);
 
-    // Phase 1: rumbling mystery card. We don't touch currentDraw yet — the
-    // DOM still shows the previous draw (or null) until phase 2 swaps it.
-    // Slice 19: open the full-screen modal so the rumble + reveal play inside
-    // it. The in-page reveal below also still runs (history / inline state).
+    // Slice 20: snapshot the items the wheel will render BEFORE we mutate
+    // the bucket, so a without-replacement draw that empties the bucket
+    // doesn't visually pop the segments mid-spin.
+    wheelItems = items.slice();
+    wheelIndex = drawnIndex;
+
+    // Phase 1: wheel appears (brief fade-in beat for non-reduced-motion;
+    // skipped entirely when reducedMotion is set). We DON'T touch
+    // currentDraw or history yet — those happen alongside the spin so the
+    // text reveal can land cleanly when the wheel stops.
     openModal();
     phase = 'rumbling';
 
-    const rumbleTime = reducedMotion ? 0 : RUMBLE_MS;
+    // Compute the final wheel rotation. We want the *center* of the
+    // drawn segment to land under the pointer (which sits at the top,
+    // i.e. -90° in our viewBox). The drawn segment spans
+    // [drawnIndex * segWidth, (drawnIndex+1) * segWidth] where
+    // segWidth = 360 / N. Its center is at
+    // drawnIndex * segWidth + segWidth/2. To rotate that point to -90°,
+    // we need the wheel to rotate by
+    // (-90 - segmentCenter) degrees — we wrap that into the negative
+    // equivalent inside (0..360) and add several full rotations for
+    // the deceleration feel.
+    const n = Math.max(wheelItems.length, 1);
+    const segWidth = 360 / n;
+    const segmentCenter = wheelIndex * segWidth + segWidth / 2;
+    // Final angle (modulo 360, in the negative direction) that parks
+    // the drawn segment under the pointer at the top.
+    const finalAngle = (((-90 - segmentCenter) % 360) + 360) % 360;
+    const fullSpins = 5 + Math.floor(Math.random() * 3); // 5..7 turns
+    const targetAngle = fullSpins * 360 + finalAngle;
 
-    setTimeout(() => {
-      // Phase 2: swap to the new draw and run the reveal animation.
+    if (reducedMotion) {
+      // Skip the spin entirely — snap to the final orientation. The CSS
+      // .wheel-spin transition is also disabled via the
+      // prefers-reduced-motion media query.
+      rotation = targetAngle;
       currentDraw = drawn;
       history = [{ drawn, at: Date.now() }, ...history].slice(0, 10);
-      // Without replacement: persist the reduced bucket so chips + localStorage
-      // stay in sync. With replacement: nothing to remove.
+      if (mode !== 'with') {
+        bucketText = result.remaining.join('\n');
+      }
+      revealKey++;
+      phase = 'revealing';
+      window.setTimeout(() => {
+        phase = 'done';
+      }, 180);
+      return;
+    }
+
+    // Two-step spin trick: explicitly stamp the inline style with the
+    // starting rotation and `transition: none`, force a reflow so the
+    // browser commits that state, then (after the WHEEL_FADE_MS beat)
+    // clear the inline `transition` override and stamp the new transform
+    // driven by `rotation`. Svelte's reactive `style="transform: ..."`
+    // then takes over, the CSS class's cubic-bezier transition supplies
+    // the deceleration, and the browser interpolates.
+    const wheelEl = wheelGroupEl;
+    if (wheelEl) {
+      wheelEl.style.transition = 'none';
+      wheelEl.style.transform = `rotate(${rotation}deg)`;
+      // Force reflow so the browser registers the starting frame.
+      void wheelEl.getBoundingClientRect();
+    }
+
+    window.setTimeout(() => {
+      // Allow the WHEEL_FADE_MS beat for the wheel to mount, then kick
+      // off the spin and settle currentDraw + history.
+      if (wheelEl) {
+        // Drop the inline transition override so the CSS rule owns it.
+        wheelEl.style.transition = '';
+        // Re-stamp the starting rotation without transition so the
+        // upcoming reactive write to `rotation` is what the browser
+        // animates from (not from a stale previous-frame value).
+        wheelEl.style.transform = `rotate(${rotation}deg)`;
+        // Reflow again before the reactive update lands in the next
+        // tick. Svelte's next style patch will then be the *new*
+        // rotation with the cubic-bezier transition active.
+        void wheelEl.getBoundingClientRect();
+      }
+      rotation = targetAngle;
+      currentDraw = drawn;
+      history = [{ drawn, at: Date.now() }, ...history].slice(0, 10);
+      // Without replacement: persist the reduced bucket so chips +
+      // localStorage stay in sync. With replacement: nothing to remove.
       if (mode !== 'with') {
         bucketText = result.remaining.join('\n');
       }
       revealKey++;
       phase = 'revealing';
 
-      setTimeout(() => {
+      window.setTimeout(() => {
         phase = 'done';
-      }, reducedMotion ? 180 : REVEAL_MS);
-    }, rumbleTime);
+      }, REVEAL_MS);
+    }, WHEEL_FADE_MS);
   }
 
   function openModal(): void {
@@ -533,11 +620,9 @@
 
   <!--
     Slice 19: full-screen modal reveal. Opens when a draw fires and plays
-    the same rumble + flip phases inside it. The in-page reveal block
-    below still renders — it just sits behind the backdrop. z-[100] keeps
-    it above the ThemeToggle (z-60) and the sticky action bar (z-50).
-    Slice 20 will replace the inner loot-box with a Glücksrad; the modal
-    container (and the {#if revealVariant} slot below) is what survives.
+    the slice-20 Glücksrad inside it. The in-page reveal block below still
+    renders — it just sits behind the backdrop. z-[100] keeps it above the
+    ThemeToggle (z-60) and the sticky action bar (z-50).
   -->
   {#if modalOpen}
     <div
@@ -547,36 +632,134 @@
       role="presentation"
     >
       <div
-        class="draw-modal-card bg-bg-elevated border border-border mx-6 max-w-2xl rounded-2xl p-8 text-center shadow-2xl sm:p-12"
+        class="draw-modal-card bg-bg-elevated border border-border mx-6 max-w-3xl rounded-2xl p-6 text-center shadow-2xl sm:p-10"
         role="dialog"
         aria-modal="true"
         aria-label="Drawn result"
       >
-        <!-- Slice 20 hook: replace {#if} branches here when swapping in the wheel. -->
-        {#if phase === 'rumbling'}
-          <div class="mystery-card" data-testid="modal-mystery-card">
-            <span class="mystery-glyph" aria-hidden="true">🎁</span>
-            <span class="sr-only">Drawing…</span>
-          </div>
-        {:else if currentDraw !== null}
-          {#key revealKey}
-            <div class="result-card" data-testid="modal-result-card">
-              <p class="text-fg-muted font-mono text-xs font-semibold uppercase tracking-wider sm:text-sm">
-                Drawn
-              </p>
-              <p class="result-text text-accent mt-3 text-5xl font-semibold break-words [overflow-wrap:anywhere] sm:text-6xl md:text-7xl">
-                {currentDraw}
-              </p>
-              <button
-                type="button"
-                bind:this={closeButtonRef}
-                onclick={closeModal}
-                class="border-border text-fg hover:border-accent rt-pressable mt-8 inline-flex min-h-[44px] items-center rounded-lg border bg-transparent px-5 py-2 text-sm font-medium"
+        <!--
+          Slice 20: Glücksrad (wheel of fortune).
+          The wheel renders whenever phase ∈ {rumbling, revealing, done}.
+          Segment count comes from wheelItems (snapshot), so without-
+          replacement draws don't pop the segments mid-spin.
+          A pointer sits above the wheel; the drawn text fades in below it
+          when phase ∈ {revealing, done}.
+        -->
+        {#if wheelItems.length > 0}
+          <div class="glucksrad relative mx-auto flex items-center justify-center">
+            <!-- Pointer: amber triangle parked at the top, pointing down
+                 into the wheel. This is the operator-fingerprint accent. -->
+            <svg
+              viewBox="0 0 40 40"
+              class="glucksrad-pointer pointer-events-none absolute top-0 left-1/2 z-10 h-10 w-10 -translate-x-1/2 -translate-y-2"
+              aria-hidden="true"
+            >
+              <polygon
+                points="20,40 5,15 35,15"
+                fill="var(--accent-2)"
+                stroke="var(--accent-2-700)"
+                stroke-width="1"
+              />
+            </svg>
+
+            <!-- The wheel itself. Segments are pie slices, text rides
+                 radially and is auto-truncated to keep the wheel legible
+                 when names get long. The whole content of this <svg> is
+                 wrapped in a <g class="wheel-spin"> whose `transform` is
+                 what we animate. Rotation is around (0, 0) — the centre of
+                 the viewBox. -->
+            <svg
+              viewBox="-100 -100 200 200"
+              class="glucksrad-wheel relative h-[70vmin] w-[70vmin] max-h-[520px] max-w-[520px] drop-shadow-[0_8px_28px_rgba(0,0,0,0.35)]"
+              data-testid="glucksrad-wheel"
+              role="img"
+              aria-label={`Spinning wheel: ${wheelItems.length} segments`}
+            >
+              <g
+                class="wheel-spin"
+                style="transform: rotate({rotation}deg)"
+                bind:this={wheelGroupEl}
               >
-                Done
-              </button>
-            </div>
-          {/key}
+                <!-- Wheel backdrop circle so the rim is visible even for
+                     an empty/one-segment edge case. -->
+                <circle cx="0" cy="0" r="98" fill="var(--accent)" />
+                <circle
+                  cx="0"
+                  cy="0"
+                  r="98"
+                  fill="none"
+                  stroke="var(--forest-700)"
+                  stroke-width="2"
+                />
+
+                <!-- Segments. We bound the rendered length so a 1-item
+                     bucket doesn't crash path geometry. -->
+                {#each wheelItems as item, i (i)}
+                  {@const startAngle = (i / wheelItems.length) * 360 - 90}
+                  {@const endAngle = ((i + 1) / wheelItems.length) * 360 - 90}
+                  {@const largeArc = endAngle - startAngle > 180 ? 1 : 0}
+                  {@const rad = Math.PI / 180}
+                  {@const sx = Math.cos(startAngle * rad) * 98}
+                  {@const sy = Math.sin(startAngle * rad) * 98}
+                  {@const ex = Math.cos(endAngle * rad) * 98}
+                  {@const ey = Math.sin(endAngle * rad) * 98}
+                  <path
+                    d={`M 0 0 L ${sx} ${sy} A 98 98 0 ${largeArc} 1 ${ex} ${ey} Z`}
+                    fill={i % 2 === 0 ? 'var(--forest-500)' : 'var(--forest-700)'}
+                    stroke="var(--forest-800)"
+                    stroke-width="0.5"
+                  />
+                  {@const midAngle = (startAngle + endAngle) / 2}
+                  {@const textRadius = wheelItems.length > 12 ? 58 : wheelItems.length > 8 ? 64 : 70}
+                  {@const tx = Math.cos(midAngle * rad) * textRadius}
+                  {@const ty = Math.sin(midAngle * rad) * textRadius}
+                  {@const label = wheelItems.length > 8 && item.length > 12
+                    ? item.slice(0, 12) + '…'
+                    : item}
+                  {@const fontSize = wheelItems.length > 12 ? 4.5 : wheelItems.length > 6 ? 5.5 : 6}
+                  <text
+                    x={tx}
+                    y={ty}
+                    transform={`rotate(${midAngle + 90} ${tx} ${ty})`}
+                    text-anchor="middle"
+                    dominant-baseline="middle"
+                    fill="white"
+                    font-size={fontSize}
+                    font-family="'Public Sans', sans-serif"
+                  >{label}</text>
+                {/each}
+
+                <!-- Center hub. Amber outer ring matches the pointer; a
+                     small dark dot at the dead centre. -->
+                <circle cx="0" cy="0" r="10" fill="var(--accent-2)" />
+                <circle cx="0" cy="0" r="6" fill="var(--forest-800)" />
+              </g>
+            </svg>
+          </div>
+
+          {#if phase === 'revealing' || phase === 'done'}
+            {#key revealKey}
+              <div class="glucksrad-reveal mt-8 text-center" data-testid="modal-result-card">
+                <p class="text-fg-muted font-mono text-xs font-semibold uppercase tracking-wider sm:text-sm">
+                  Drawn
+                </p>
+                <p class="text-accent mt-3 break-words text-5xl font-semibold [overflow-wrap:anywhere] sm:text-6xl md:text-7xl">
+                  {currentDraw}
+                </p>
+              </div>
+            {/key}
+          {/if}
+
+          {#if phase === 'done'}
+            <button
+              type="button"
+              bind:this={closeButtonRef}
+              onclick={closeModal}
+              class="border-border text-fg hover:border-accent rt-pressable mt-8 inline-flex min-h-[44px] items-center rounded-lg border bg-transparent px-5 py-2 text-sm font-medium"
+            >
+              Done
+            </button>
+          {/if}
         {/if}
       </div>
     </div>
@@ -1127,6 +1310,92 @@
     .draw-modal-hidden {
       animation: none;
       opacity: 0;
+    }
+  }
+
+  /* ─── Slice 20: Glücksrad (wheel of fortune) ──────────────────────
+   * The wheel is an SVG with N pie segments rendered into a <g> element
+   * whose `transform: rotate(...)` is what we animate. The cubic-bezier
+   * below decelerates the rotation to land on the chosen segment — the
+   * classic "wheel of fortune" feel.
+   *
+   * The two-step spin (stamp starting frame with transition:none →
+   * flush → un-stamp → Svelte writes new transform) drives the
+   * transition. The cubic-bezier duration matches JS SPIN_MS.
+   *
+   * The reveal text below the wheel uses a CSS keyframe so we stay off
+   * Svelte transitions per the pitfalls list. */
+  .glucksrad-wheel {
+    /* Make sure wheel + pointer sit in a known box; the parent flex
+       container centers them. */
+    display: block;
+  }
+
+  .wheel-spin {
+    /* Single transition on `transform`. The cubic-bezier decelerates
+     * (no overshoot) so the wheel glides to a stop the way a real
+     * wheel does when friction wins. */
+    transform: rotate(0deg);
+    transform-origin: 0 0;
+    transition: transform 4000ms cubic-bezier(0.17, 0.67, 0.21, 1);
+    will-change: transform;
+  }
+
+  .glucksrad-reveal {
+    /* Fade-in + scale-up for the drawn text. Animation runs once per
+     * {#key revealKey} mount, so each draw re-fires it. */
+    animation: glucksrad-reveal-in 500ms cubic-bezier(0.2, 1.2, 0.3, 1) both;
+    will-change: transform, opacity;
+    /* Subtle forest-tinted halo so the drawn text reads as part of the
+     * wheel — same accent the modal card uses. */
+    text-shadow: 0 0 32px color-mix(in oklch, var(--accent) 40%, transparent);
+  }
+
+  @keyframes glucksrad-reveal-in {
+    0% {
+      opacity: 0;
+      transform: scale(0.7);
+      letter-spacing: 0.08em;
+    }
+    60% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1);
+      letter-spacing: -0.015em;
+    }
+  }
+
+  /* Pointer sits at the top of the wheel. We give it a tiny pulse to
+   * hint at "I'm the one you're aiming for" without being noisy. */
+  .glucksrad-pointer {
+    animation: glucksrad-pointer-pulse 1400ms ease-in-out infinite;
+  }
+
+  @keyframes glucksrad-pointer-pulse {
+    0%, 100% { transform: translate(-50%, -0.5rem) scale(1); }
+    50%      { transform: translate(-50%, -0.5rem) scale(1.08); }
+  }
+
+  /* Slice 20 / prefers-reduced-motion: kill the spin transition, the
+   * pointer pulse, and the bouncy text reveal. The wheel appears in
+   * its final orientation (JS snaps `rotation` to the target directly)
+   * and the text fades in over 180ms. */
+  @media (prefers-reduced-motion: reduce) {
+    .wheel-spin {
+      transition: none;
+    }
+    .glucksrad-pointer {
+      animation: none;
+    }
+    .glucksrad-reveal {
+      animation: glucksrad-fade-in 180ms ease-out both;
+      text-shadow: none;
+    }
+    @keyframes glucksrad-fade-in {
+      from { opacity: 0; }
+      to   { opacity: 1; }
     }
   }
 </style>
