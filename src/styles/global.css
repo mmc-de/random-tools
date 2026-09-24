@@ -51,6 +51,8 @@ html {
   font-family: var(--font-body);
   -webkit-text-size-adjust: 100%;
   font-feature-settings: "ss01", "ss02", "kern";
+  /* Prevent toggle drift when content reflows scrollbar on/off */
+  scrollbar-gutter: stable;
 }
 
 body {

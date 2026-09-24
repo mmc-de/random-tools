@@ -13,16 +13,16 @@ export const BUNDESLIGA_2026_27 = [
   "Eintracht Frankfurt",
   "SC Freiburg",
   "TSG Hoffenheim",
-  "1. FC Heidenheim",
   "Werder Bremen",
   "FC Augsburg",
-  "VfL Wolfsburg",
-  "1. FSV Mainz 05",
   "1. FC Union Berlin",
   "Borussia Mönchengladbach",
   "1. FC Köln",
-  "FC St. Pauli",
+  "1. FSV Mainz 05",
   "Hamburger SV",
+  "FC Schalke 04",
+  "SV Elversberg",
+  "SC Paderborn",
 ] as const;
 
 /** Convenience: the clubs joined with newlines, ready to drop into the textarea. */
