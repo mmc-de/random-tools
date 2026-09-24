@@ -497,6 +497,38 @@
         <Icon name="football" class="text-base leading-none" />
         <span>Prefill Bundesliga</span>
       </button>
+      <!--
+        Slice 21 (R): compact iOS-style mode toggle, inline in the bucket
+        header (right-aligned). Single switch that flips between
+        'without' (off, gray track) and 'with' (on, forest-green track).
+        The adjacent label reflects the current mode so the active state
+        is always visible. role="switch" + aria-checked keeps it
+        screen-reader-friendly; clicks on the switch or its label both
+        toggle. localStorage key 'random-tools:mode' is unchanged.
+      -->
+      <div class="ml-auto inline-flex items-center gap-2">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={mode === 'with'}
+          aria-label={mode === 'with' ? 'With replacement — on' : 'Without replacement — on'}
+          onclick={() => setMode(mode === 'with' ? 'without' : 'with')}
+          class="mode-toggle rt-pressable"
+          data-on={mode === 'with'}
+        >
+          <span class="mode-toggle-track" aria-hidden="true">
+            <span class="mode-toggle-thumb" />
+          </span>
+        </button>
+        <button
+          type="button"
+          onclick={() => setMode(mode === 'with' ? 'without' : 'with')}
+          class="text-fg hover:text-accent text-sm font-medium transition-colors"
+          aria-label={mode === 'with' ? 'Mode: With replacement (click to switch to Without replacement)' : 'Mode: Without replacement (click to switch to With replacement)'}
+        >
+          {mode === 'with' ? 'With replacement' : 'Without replacement'}
+        </button>
+      </div>
     </div>
 
     <!--
@@ -537,37 +569,11 @@
     </div>
   </div>
 
-  <div>
-    <span class="text-fg mb-2 block text-sm font-medium">Mode</span>
-    <div
-      role="group"
-      aria-label="Draw mode"
-      class="inline-flex flex-wrap gap-2"
-    >
-      <button
-        type="button"
-        onclick={() => setMode('without')}
-        class="min-h-[44px] rounded-lg px-4 py-2 text-sm font-medium transition-colors {mode ===
-        'without'
-          ? 'bg-accent text-accent-fg'
-          : 'border-border text-muted border bg-transparent'}"
-        aria-pressed={mode === 'without'}
-      >
-        Without replacement
-      </button>
-      <button
-        type="button"
-        onclick={() => setMode('with')}
-        class="min-h-[44px] rounded-lg px-4 py-2 text-sm font-medium transition-colors {mode ===
-        'with'
-          ? 'bg-accent text-accent-fg'
-          : 'border-border text-muted border bg-transparent'}"
-        aria-pressed={mode === 'with'}
-      >
-        With replacement
-      </button>
-    </div>
-  </div>
+  <!--
+    Slice 21 (R): the Mode control now lives inline in the bucket header
+    (see the compact toggle at the top of this file). The old standalone
+    segmented control has been removed.
+  -->
 
   <!--
     Slice 18 (O): sticky bottom action bar. The bar uses `position: sticky`
@@ -941,6 +947,80 @@
   }
   .chip-input::placeholder {
     color: var(--fg-meta);
+  }
+
+  /* ─── Mode toggle (slice 21) ──────────────────────────────────────
+   * Compact iOS-style switch inline with the bucket header. Track is a
+   * pill; the white circular thumb slides across on a 150ms ease-out
+   * transition. Off = bg-bg-hover (neutral), on = bg-accent (forest
+   * green). The slide animation is killed for prefers-reduced-motion so
+   * the toggle snaps instantly to its new state. The switch + the
+   * adjacent label button are both clickable, so the user can land on
+   * either target. */
+  .mode-toggle {
+    /* Reset native button chrome; size the pill exactly. */
+    appearance: none;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    line-height: 0;
+  }
+
+  .mode-toggle:focus-visible {
+    /* Visible focus ring around the track for keyboard users. */
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 9999px;
+  }
+
+  .mode-toggle-track {
+    /* Pill: ~40px wide, ~22px tall (compact, not the default 44px). */
+    display: inline-flex;
+    align-items: center;
+    width: 2.5rem; /* 40px */
+    height: 1.375rem; /* 22px */
+    padding: 2px;
+    border-radius: 9999px;
+    background: var(--bg-hover);
+    transition: background 150ms ease-out;
+  }
+
+  .mode-toggle[data-on="true"] .mode-toggle-track {
+    /* Forest-green track when the switch is on (with-replacement). */
+    background: var(--accent);
+  }
+
+  .mode-toggle-thumb {
+    /* White circular thumb, 18px diameter. translate-x slides it across
+     * the track between off (0) and on (~18px). */
+    width: 1.125rem; /* 18px */
+    height: 1.125rem;
+    border-radius: 9999px;
+    background: white;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+    transform: translateX(0);
+    transition: transform 150ms ease-out;
+  }
+
+  .mode-toggle[data-on="true"] .mode-toggle-thumb {
+    /* Slide the thumb to the right edge of the track. 40px track minus
+     * 22px (padding 2px on each side + 18px thumb) = 18px slide. */
+    transform: translateX(1.125rem); /* 18px */
+  }
+
+  /* Respect prefers-reduced-motion: snap to the new state instantly.
+   * The track colour change is also instant (transition dropped). */
+  @media (prefers-reduced-motion: reduce) {
+    .mode-toggle-track {
+      transition: none;
+    }
+    .mode-toggle-thumb {
+      transition: none;
+    }
   }
 
   /* ─── Reveal / result block ─────────────────────────────────────── */
