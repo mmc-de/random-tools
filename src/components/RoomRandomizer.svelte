@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { assignRooms, type Pin, type Room } from '~/lib/random';
+  import { assignRooms, formatAssignmentForShare, type Pin, type Room } from '~/lib/random';
 
   type Assigned = { person: string; room: string };
   type Result = { assigned: Assigned[]; unassigned: string[] } | null;
@@ -174,6 +174,26 @@
       shareState = 'error';
     }
   }
+
+  function shareWhatsApp(): void {
+    if (typeof window === 'undefined') return;
+    if (!result || result.assigned.length === 0) return;
+    const message = formatAssignmentForShare(result);
+    const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    const opened = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!opened) {
+      // Popup blocked — fall back to a synthetic anchor click.
+      const a = document.createElement('a');
+      a.href = url;
+      a.rel = 'noopener noreferrer';
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  }
+
+  const whatsappDisabled = $derived(!result || result.assigned.length === 0);
 
   onMount(() => {
     mounted = true;
@@ -350,6 +370,16 @@
       {:else}
         Share link
       {/if}
+    </button>
+    <button
+      type="button"
+      onclick={shareWhatsApp}
+      disabled={whatsappDisabled}
+      title="Send via WhatsApp"
+      class="border-border text-fg hover:border-accent inline-flex min-h-[44px] items-center rounded-lg border bg-transparent px-4 py-2.5 font-medium disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border"
+      aria-label="Send results via WhatsApp"
+    >
+      WhatsApp
     </button>
     <span class="text-muted text-xs" aria-live="polite">
       {#if result}

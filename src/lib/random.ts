@@ -172,3 +172,30 @@ function greedyFill(
 
   return { assigned, unassigned };
 }
+
+/**
+ * Render an assignment result as a flat, plaintext message suitable for
+ * pasting into chat apps (WhatsApp, Telegram, SMS). Uses real Unicode
+ * glyphs (•, →, 🏠) and WhatsApp-flavour markdown (`_italic_`).
+ *
+ * Output shape:
+ *   🏠 Room assignments
+ *
+ *   • Alice → Room 101
+ *   • Bob → Room 102
+ *
+ *   _Unassigned: Dave_
+ *
+ * The unassigned line is omitted entirely when there are none. The
+ * function is pure and safe to call during SSR.
+ */
+export function formatAssignmentForShare(result: AssignmentResult): string {
+  const lines: string[] = ['🏠 Room assignments', ''];
+  for (const a of result.assigned) {
+    lines.push(`• ${a.person} → ${a.room}`);
+  }
+  if (result.unassigned.length > 0) {
+    lines.push('', `_Unassigned: ${result.unassigned.join(', ')}_`);
+  }
+  return lines.join('\n');
+}
