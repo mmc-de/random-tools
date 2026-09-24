@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { draw, parseBucketInput, type DrawMode } from '~/lib/draw';
+  import { BUNDESLIGA_OPTIONS } from '~/lib/bundesliga';
 
   const BUCKET_KEY = 'random-tools:bucket';
   const MODE_KEY = 'random-tools:mode';
@@ -92,6 +93,15 @@
     history = [];
     currentDraw = null;
     opacity = 1;
+  }
+
+  function prefillBundesliga(): void {
+    // Replace the textarea contents with the current 1. Bundesliga clubs
+    // and clear history (the old draws are unrelated to the new contents).
+    // The textarea stays editable — the user can add/remove clubs freely.
+    // Mode is preserved.
+    bucketText = BUNDESLIGA_OPTIONS;
+    history = [];
   }
 
   function formatTime(ts: number): string {
@@ -245,9 +255,19 @@
 
 <div class="space-y-6">
   <label class="block">
-    <span class="text-fg mb-2 block text-sm font-medium">
-      Bucket
-      <span class="text-muted font-normal">(one option per line)</span>
+    <span class="text-fg mb-2 flex items-center justify-between gap-3 text-sm font-medium">
+      <span>
+        Bucket
+        <span class="text-muted font-normal">(one option per line)</span>
+      </span>
+      <button
+        type="button"
+        onclick={prefillBundesliga}
+        class="border-border text-fg hover:border-accent rounded-lg border px-3 py-1.5 text-sm font-medium"
+        aria-label="Prefill bucket with current 1. Bundesliga clubs"
+      >
+        Prefill Bundesliga
+      </button>
     </span>
     <textarea
       bind:value={bucketText}
