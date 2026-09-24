@@ -65,30 +65,14 @@ export function shuffle<T>(items: readonly T[]): T[] {
 /**
  * Assign each person to at most one room. Capacity defaults to 1.
  *
- * Two algorithms:
+ * Algorithm: validate `pins` (forgiving — unknown person/room, duplicate,
+ * over-capacity are skipped). Subtract pinned counts from each room's
+ * remaining capacity. Greedy-fill the remaining people into remaining
+ * capacity (shuffle the people first so output order is random). Any
+ * people that don't fit land in `unassigned`.
  *
- *   (a) Total capacity < people.length → Greedy fill.
- *       Pick a random unassigned person, pick a random room with remaining
- *       capacity, place them. Repeat until no room has remaining capacity.
- *       Leftovers go to `unassigned`.
- *
- *   (b) Total capacity >= people.length → Rejection-sample a uniform capacity-
- *       feasible assignment; on max-retry, fall back to greedy.
- *
- *       Step 1: each person picks a random "slot index" in [0, totalCapacity).
- *       Step 2: read off room occupancy by slot. Reject if any room is over
- *       capacity (rare unless capacity ≈ people).
- *
- *       The fall-back greedy path is identical to (a) but every person
- *       eventually gets a slot.
- *
- * Both paths emit `assigned` in random order.
- *
- * `pins` (optional): manual pre-assignments. Forgiving — invalid pins
- * (unknown person, unknown room, same person twice, would exceed room
- * capacity) are skipped, not fatal. Pinned assignments are placed first
- * in `assigned` in input order, then the rest is greedy-filled into the
- * remaining capacity.
+ * Pinned assignments are placed first in `assigned` (input order), then
+ * the greedy-fill results follow (random order).
  */
 export function assignRooms(
   people: readonly string[],
@@ -158,58 +142,6 @@ export function assignRooms(
     ],
     unassigned: fill.unassigned,
   };
-}
-
-function sampleUniform(
-  people: readonly string[],
-  rooms: readonly { name: string; capacity: number }[],
-): AssignmentResult | null {
-  const totalCapacity = rooms.reduce((s, r) => s + r.capacity, 0);
-  if (totalCapacity === 0) return null;
-
-  // Each person picks an INDEPENDENT random slot in [0, totalCapacity).
-  // Reject if any room is over capacity.
-  const occupancy = new Array<number>(rooms.length).fill(0);
-  // offsets[i] = first slot index that belongs to room i
-  const offsets: number[] = [];
-  let acc = 0;
-  for (const r of rooms) {
-    offsets.push(acc);
-    acc += r.capacity;
-  }
-
-  // Assign each person a random slot
-  const slots = new Array<number>(people.length);
-  for (let i = 0; i < people.length; i++) {
-    slots[i] = uniformInt(totalCapacity);
-  }
-
-  const assigned: Assigned[] = [];
-  for (let i = 0; i < people.length; i++) {
-    const slot = slots[i];
-    // Find which room owns this slot
-    let roomIdx = -1;
-    for (let j = 0; j < rooms.length; j++) {
-      const start = offsets[j];
-      const end = start + rooms[j].capacity;
-      if (slot >= start && slot < end) {
-        roomIdx = j;
-        break;
-      }
-    }
-    if (roomIdx === -1) {
-      // Should not happen if offsets are correct
-      return null;
-    }
-    if (occupancy[roomIdx] >= rooms[roomIdx].capacity) {
-      // Over capacity — reject this attempt
-      return null;
-    }
-    occupancy[roomIdx]++;
-    assigned.push({ person: people[i], room: rooms[roomIdx].name });
-  }
-
-  return { assigned, unassigned: [] };
 }
 
 function greedyFill(
