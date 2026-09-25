@@ -40,8 +40,8 @@
   // Tunables.
   //   MYSTERY_MS = trembling loot-box beat (the suspense before the name)
   //   REVEAL_MS = chest-open flip + glow burst on the drawn name
-  const MYSTERY_MS = 1100;
-  const REVEAL_MS = 700;
+  const MYSTERY_MS = 2200;
+  const REVEAL_MS = 800;
 
   // The parsed bucket is what `draw()` operates on (deduped, trimmed).
   const bucket = $derived(parseBucketInput(bucketText));
@@ -618,7 +618,8 @@
       role="presentation"
     >
       <div
-        class="draw-modal-card bg-bg-elevated border border-border mx-6 max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl p-6 text-center shadow-2xl sm:p-10"
+        class="draw-modal-card bg-bg-elevated border border-border mx-6 flex w-[min(640px,92vw)] flex-col items-center justify-center overflow-hidden rounded-2xl p-6 text-center shadow-2xl sm:p-10"
+             style="height: min(560px, 80vh); min-height: 480px;"
         role="dialog"
         aria-modal="true"
         aria-label="Drawn result"
@@ -637,6 +638,11 @@
             <div class="loot-box-glyph relative flex items-center justify-center">
               <span class="loot-box-emoji" aria-hidden="true">🎁</span>
               <span class="loot-box-q" aria-hidden="true">?</span>
+              <!-- Lightning bolts that flash on alternating beats to sell the
+                   "anticipation" — boxes about to burst open. -->
+              <span class="loot-box-spark loot-box-spark--tl" aria-hidden="true">⚡</span>
+              <span class="loot-box-spark loot-box-spark--br" aria-hidden="true">⚡</span>
+              <span class="loot-box-ring" aria-hidden="true"></span>
               <span class="sr-only">Drawing… opening the loot box.</span>
             </div>
             <p class="text-fg-muted font-mono mt-6 text-xs font-semibold uppercase tracking-wider sm:text-sm">
@@ -646,23 +652,45 @@
         {/if}
 
         <!--
-          Phase: revealing / done — chest-open reveal. The drawn name
-          appears with a dramatic scale-burst + forest glow. Re-keying on
-          revealKey re-runs the entry animation each draw.
+          Chest-open confetti: a one-shot SVG overlay rendered behind the
+          drawn name during the `revealing` phase. Each piece is animated
+          outward + downward + rotating via CSS keyframes. Re-keyed on
+          revealKey so it fires once per draw, not on every render.
         -->
         {#if phase === 'revealing' || phase === 'done'}
           {#key revealKey}
-            <div
-              class="chest-reveal mt-6 text-center"
-              data-testid="modal-result-card"
-            >
-              <p class="text-fg-muted font-mono text-xs font-semibold uppercase tracking-wider sm:text-sm">
-                Drawn
-              </p>
-              <div class="chest-reveal-burst relative inline-block">
-                <p class="text-accent mt-3 break-words text-5xl font-semibold [overflow-wrap:anywhere] sm:text-6xl md:text-7xl">
-                  {currentDraw}
+            <div class="chest-reveal-shell relative" aria-hidden="true">
+              <svg class="chest-confetti" viewBox="-200 -200 400 400" preserveAspectRatio="xMidYMid meet">
+                {#each Array.from({length: 14}) as _, i}
+                  {@const angle = (i / 14) * 360}
+                  {@const rad = (Math.PI / 180) * angle}
+                  {@const dx = Math.cos(rad) * 140}
+                  {@const dy = Math.sin(rad) * 140 - 30}
+                  {@const color = i % 3 === 0 ? 'var(--accent-2)' : i % 3 === 1 ? 'var(--accent)' : 'var(--accent-tint)'}
+                  <rect
+                    class="confetti-piece"
+                    x="-3"
+                    y="-3"
+                    width="6"
+                    height="12"
+                    rx="1.5"
+                    fill={color}
+                    style={`--dx: ${dx}px; --dy: ${dy}px; --rot: ${angle + 180}deg;`}
+                  />
+                {/each}
+              </svg>
+              <div
+                class="chest-reveal mt-6 text-center"
+                data-testid="modal-result-card"
+              >
+                <p class="text-fg-muted font-mono text-xs font-semibold uppercase tracking-wider sm:text-sm">
+                  Drawn
                 </p>
+                <div class="chest-reveal-burst relative inline-block">
+                  <p class="text-accent mt-3 break-words text-5xl font-semibold [overflow-wrap:anywhere] sm:text-6xl md:text-7xl">
+                    {currentDraw}
+                  </p>
+                </div>
               </div>
             </div>
           {/key}
@@ -1384,7 +1412,7 @@
     z-index: -1;
   }
   .chest-reveal-burst > p {
-    animation: chest-text 700ms var(--ease-out);
+    animation: chest-text 800ms var(--ease-out);
   }
   @keyframes chest-glow {
     0%   { opacity: 0; transform: scale(0.4); }
@@ -1397,18 +1425,111 @@
     100% { opacity: 1; transform: scale(1) translateY(0); }
   }
 
+  /* ─── Lightning sparks (mystery beat) ─────────────────────────────
+   * Two ⚡ glyphs orbiting the loot box, flashing on alternating beats.
+   * Sells the "electricity / anticipation" feeling while the box trembles.
+   */
+  .loot-box-spark {
+    position: absolute;
+    font-size: 1.5rem;
+    line-height: 1;
+    color: var(--accent-2);
+    text-shadow: 0 0 12px var(--accent-2);
+    pointer-events: none;
+    opacity: 0;
+  }
+  .loot-box-spark--tl {
+    top: -0.5rem;
+    left: -0.75rem;
+    transform: rotate(-20deg);
+    animation: loot-spark 450ms ease-in-out infinite;
+  }
+  .loot-box-spark--br {
+    bottom: -0.5rem;
+    right: -0.75rem;
+    transform: rotate(20deg) scaleX(-1);
+    animation: loot-spark 450ms ease-in-out infinite 225ms;
+  }
+  @keyframes loot-spark {
+    0%, 100% { opacity: 0; transform: scale(0.7); }
+    50%      { opacity: 1; transform: scale(1.15); }
+  }
+
+  /* Floor ring — concentric ring expanding outward from the box, like a
+   * pulse reaching into the room. Adds depth and a sense of energy. */
+  .loot-box-ring {
+    position: absolute;
+    inset: -1rem;
+    border-radius: 9999px;
+    border: 2px solid color-mix(in oklch, var(--accent-2) 50%, transparent);
+    opacity: 0;
+    animation: loot-ring 1.6s ease-out infinite;
+    pointer-events: none;
+  }
+  @keyframes loot-ring {
+    0%   { opacity: 0; transform: scale(0.6); }
+    20%  { opacity: 0.8; }
+    100% { opacity: 0; transform: scale(2); }
+  }
+
+  /* ─── Chest-open confetti (reveal beat) ────────────────────────────
+   * 14 small rectangles fly outward from the centre in a starburst.
+   * Each piece is animated to its own (--dx, --dy) landing point and
+   * rotates on the way down. The SVG container is positioned absolutely
+   * behind the drawn name; the .chest-reveal-shell wraps both so they
+   * share the same re-key and fire together on each draw.
+   */
+  .chest-reveal-shell {
+    width: 100%;
+    min-height: 12rem;
+  }
+  .chest-confetti {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    overflow: visible;
+  }
+  .confetti-piece {
+    transform: translate(0, 0) rotate(0deg);
+    opacity: 1;
+    animation: confetti-fly 1100ms cubic-bezier(0.16, 0.68, 0.32, 1) forwards;
+  }
+  @keyframes confetti-fly {
+    0% {
+      opacity: 1;
+      transform: translate(0, 0) rotate(0deg) scale(1);
+    }
+    20% {
+      opacity: 1;
+      transform: translate(calc(var(--dx) * 0.35), calc(var(--dy) * 0.35 - 10px)) rotate(calc(var(--rot) * 0.3)) scale(1.1);
+    }
+    100% {
+      opacity: 0;
+      transform: translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(0.6);
+    }
+  }
+
   /* prefers-reduced-motion: drop the shake + pulse + chest-burst, keep
    * a simple opacity fade. */
   @media (prefers-reduced-motion: reduce) {
     .loot-box-glyph,
     .loot-box-emoji,
-    .loot-box-q {
+    .loot-box-q,
+    .loot-box-spark,
+    .loot-box-ring {
       animation: none !important;
+      opacity: 1;
     }
     .chest-reveal-burst::before,
     .chest-reveal-burst > p {
       animation: none !important;
       opacity: 1;
+    }
+    .confetti-piece {
+      animation: none !important;
+      opacity: 0;
     }
   }
 
