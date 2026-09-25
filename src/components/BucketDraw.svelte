@@ -16,6 +16,7 @@
   let mode = $state<DrawMode>('without');
   let currentDraw = $state<string | null>(null);
   let history = $state<HistoryEntry[]>([]);
+  let historyOpen = $state(false); // Recent draws collapsed by default
   let shareState = $state<'idle' | 'copied' | 'error'>('idle');
   let chipInput = $state('');
   let clearedFlag = $state<'idle' | 'shown'>('idle');
@@ -35,28 +36,10 @@
   let modalVisible = $state(false);
   let closeButtonRef = $state<HTMLButtonElement | null>(null);
   let drawButtonRef = $state<HTMLButtonElement | null>(null);
-  let wheelGroupEl = $state<SVGGElement | null>(null);
-
-  // Slice 20: Glücksrad (wheel of fortune) state.
-  // `wheelItems` is the snapshot of bucket items the wheel renders (so a
-  // without-replacement draw that empties the bucket doesn't visually
-  // pop the segment list mid-spin). `wheelIndex` is the index of the
-  // drawn item inside `wheelItems` — that's the segment the wheel
-  // decelerates toward. `rotation` is the live CSS rotation in degrees
-  // applied to the wheel group; we set it in two steps to force the
-  // cubic-bezier transition to fire.
-  let wheelItems = $state<string[]>([]);
-  let wheelIndex = $state(0);
-  let rotation = $state(0);
 
   // Tunables.
-  //   WHEEL_FADE_MS = brief beat so the wheel appears before the spin
-  //   SPIN_MS = the wheel's cubic-bezier spin duration
-  //   MYSTERY_MS = trembling loot-box beat (after the wheel stops, before
-  //                the drawn name is shown — that's the "tension" beat)
+  //   MYSTERY_MS = trembling loot-box beat (the suspense before the name)
   //   REVEAL_MS = chest-open flip + glow burst on the drawn name
-  const WHEEL_FADE_MS = 200;
-  const SPIN_MS = 4200;
   const MYSTERY_MS = 1100;
   const REVEAL_MS = 700;
 
@@ -72,7 +55,7 @@
     return bucket.filter((item) => !drawnSet.has(item)).length;
   });
 
-  const isAnimating = $derived(phase === 'rumbling' || phase === 'revealing');
+  const isAnimating = $derived(phase === 'mystery' || phase === 'revealing');
 
   function setMode(next: DrawMode): void {
     mode = next;
@@ -92,49 +75,23 @@
 
     const result = draw(items, { withReplacement: mode === 'with' });
     const drawn = String(result.drawn);
-    const drawnIndex = items.indexOf(result.drawn as string);
 
-    // Slice 20: snapshot the items the wheel will render BEFORE we mutate
-    // the bucket, so a without-replacement draw that empties the bucket
-    // doesn't visually pop the segments mid-spin.
-    wheelItems = items.slice();
-    wheelIndex = drawnIndex;
-
-    // Phase 1: wheel appears (brief fade-in beat for non-reduced-motion;
-    // skipped entirely when reducedMotion is set). We DON'T touch
-    // currentDraw or history yet — those happen alongside the spin so the
-    // text reveal can land cleanly when the wheel stops.
+    // Open the modal, then jump straight into the trembling loot-box
+    // mystery beat. The drawn name isn't committed to state yet — that
+    // happens when the mystery beat ends and the chest pops open. The
+    // suspense comes from NOT knowing what's in the box for ~MYSTERY_MS.
     openModal();
-    phase = 'rumbling';
+    phase = 'mystery';
+    revealKey++;
 
-    // Compute the final wheel rotation. We want the *center* of the
-    // drawn segment to land under the pointer (which sits at the top,
-    // i.e. -90° in our viewBox). The drawn segment spans
-    // [drawnIndex * segWidth, (drawnIndex+1) * segWidth] where
-    // segWidth = 360 / N. Its center is at
-    // drawnIndex * segWidth + segWidth/2. To rotate that point to -90°,
-    // we need the wheel to rotate by
-    // (-90 - segmentCenter) degrees — we wrap that into the negative
-    // equivalent inside (0..360) and add several full rotations for
-    // the deceleration feel.
-    const n = Math.max(wheelItems.length, 1);
-    const segWidth = 360 / n;
-    const segmentCenter = wheelIndex * segWidth + segWidth / 2;
-    // Final angle (modulo 360, in the negative direction) that parks
-    // the drawn segment under the pointer at the top.
-    const finalAngle = (((-90 - segmentCenter) % 360) + 360) % 360;
-    const fullSpins = 5 + Math.floor(Math.random() * 3); // 5..7 turns
-    const targetAngle = fullSpins * 360 + finalAngle;
-
+    // Reduced motion: skip the trembling beat, go straight to the
+    // chest-open reveal (still no animation, just a fade-in for the name).
     if (reducedMotion) {
-      // Skip the spin + mystery beats entirely — snap to the final state.
-      rotation = targetAngle;
       currentDraw = drawn;
       history = [{ drawn, at: Date.now() }, ...history].slice(0, 10);
       if (mode !== 'with') {
         bucketText = result.remaining.join('\n');
       }
-      revealKey++;
       phase = 'revealing';
       window.setTimeout(() => {
         phase = 'done';
@@ -142,58 +99,20 @@
       return;
     }
 
-    // Two-step spin trick: explicitly stamp the inline style with the
-    // starting rotation and `transition: none`, force a reflow so the
-    // browser commits that state, then (immediately after, since the wheel
-    // is already mounted from a previous draw OR for the first draw it
-    // mounts inside the WHEEL_FADE_MS beat) clear the inline `transition`
-    // override and stamp the new transform driven by `rotation`. Svelte's
-    // reactive `style="transform: ..."` then takes over, the CSS class's
-    // cubic-bezier transition supplies the deceleration, and the browser
-    // interpolates.
-    const wheelEl = wheelGroupEl;
-    if (wheelEl) {
-      wheelEl.style.transition = 'none';
-      wheelEl.style.transform = `rotate(${rotation}deg)`;
-      // Force reflow so the browser registers the starting frame.
-      void wheelEl.getBoundingClientRect();
-    }
-
     window.setTimeout(() => {
-      // The wheel is now mounted and committed at its starting rotation.
-      // Drop the inline transition override so the CSS rule owns it, then
-      // kick off the spin and advance the phase machine.
-      if (wheelEl) {
-        wheelEl.style.transition = '';
-        wheelEl.style.transform = `rotate(${rotation}deg)`;
-        void wheelEl.getBoundingClientRect();
+      // Mystery beat ends — the chest pops open. Commit the drawn name +
+      // history now, advance to `revealing` for the chest-open burst,
+      // then settle on `done`.
+      currentDraw = drawn;
+      history = [{ drawn, at: Date.now() }, ...history].slice(0, 10);
+      if (mode !== 'with') {
+        bucketText = result.remaining.join('\n');
       }
-      rotation = targetAngle;
-      revealKey++;
-      // Don't commit currentDraw / history yet — the wheel is just
-      // answering the question; the user sees that answer after the
-      // wheel stops + a trembling loot-box beat.
-
+      phase = 'revealing';
       window.setTimeout(() => {
-        // Wheel has stopped. Swap to the trembling loot-box mystery
-        // card. The drawn name still isn't shown — that lands after the
-        // MYSTERY_MS beat so the reveal has tension.
-        phase = 'mystery';
-        currentDraw = drawn;
-        history = [{ drawn, at: Date.now() }, ...history].slice(0, 10);
-        if (mode !== 'with') {
-          bucketText = result.remaining.join('\n');
-        }
-
-        window.setTimeout(() => {
-          // Chest-open: swap to the dramatic name reveal.
-          phase = 'revealing';
-          window.setTimeout(() => {
-            phase = 'done';
-          }, REVEAL_MS);
-        }, MYSTERY_MS);
-      }, SPIN_MS);
-    }, WHEEL_FADE_MS);
+        phase = 'done';
+      }, REVEAL_MS);
+    }, MYSTERY_MS);
   }
 
   function openModal(): void {
@@ -705,112 +624,9 @@
         aria-label="Drawn result"
       >
         <!--
-          Slice 20: Glücksrad (wheel of fortune).
-          The wheel renders whenever phase ∈ {rumbling, revealing, done}.
-          Segment count comes from wheelItems (snapshot), so without-
-          replacement draws don't pop the segments mid-spin.
-          A pointer sits above the wheel; the drawn text fades in below it
-          when phase ∈ {revealing, done}.
-        -->
-        <!-- Phase: rumbling — show the spinning wheel only. -->
-        {#if phase === 'rumbling' && wheelItems.length > 0}
-          <div class="glucksrad relative mx-auto flex items-center justify-center">
-            <!-- Pointer: amber triangle parked at the top, pointing down
-                 into the wheel. This is the operator-fingerprint accent. -->
-            <svg
-              viewBox="0 0 40 40"
-              class="glucksrad-pointer pointer-events-none absolute top-0 left-1/2 z-10 h-10 w-10 -translate-x-1/2 -translate-y-2"
-              aria-hidden="true"
-            >
-              <polygon
-                points="20,40 5,15 35,15"
-                fill="var(--accent-2)"
-                stroke="var(--accent-2-700)"
-                stroke-width="1"
-              />
-            </svg>
-
-            <!-- The wheel itself. Segments are pie slices, text rides
-                 radially and is auto-truncated to keep the wheel legible
-                 when names get long. The whole content of this <svg> is
-                 wrapped in a <g class="wheel-spin"> whose `transform` is
-                 what we animate. Rotation is around (0, 0) — the centre of
-                 the viewBox. -->
-            <svg
-              viewBox="-100 -100 200 200"
-              class="glucksrad-wheel relative h-[70vmin] w-[70vmin] max-h-[520px] max-w-[520px] drop-shadow-[0_8px_28px_rgba(0,0,0,0.35)]"
-              data-testid="glucksrad-wheel"
-              role="img"
-              aria-label={`Spinning wheel: ${wheelItems.length} segments`}
-            >
-              <g
-                class="wheel-spin"
-                style="transform: rotate({rotation}deg)"
-                bind:this={wheelGroupEl}
-              >
-                <!-- Wheel backdrop circle so the rim is visible even for
-                     an empty/one-segment edge case. -->
-                <circle cx="0" cy="0" r="98" fill="var(--accent)" />
-                <circle
-                  cx="0"
-                  cy="0"
-                  r="98"
-                  fill="none"
-                  stroke="var(--forest-700)"
-                  stroke-width="2"
-                />
-
-                <!-- Segments. We bound the rendered length so a 1-item
-                     bucket doesn't crash path geometry. -->
-                {#each wheelItems as item, i (i)}
-                  {@const startAngle = (i / wheelItems.length) * 360 - 90}
-                  {@const endAngle = ((i + 1) / wheelItems.length) * 360 - 90}
-                  {@const largeArc = endAngle - startAngle > 180 ? 1 : 0}
-                  {@const rad = Math.PI / 180}
-                  {@const sx = Math.cos(startAngle * rad) * 98}
-                  {@const sy = Math.sin(startAngle * rad) * 98}
-                  {@const ex = Math.cos(endAngle * rad) * 98}
-                  {@const ey = Math.sin(endAngle * rad) * 98}
-                  <path
-                    d={`M 0 0 L ${sx} ${sy} A 98 98 0 ${largeArc} 1 ${ex} ${ey} Z`}
-                    fill={i % 2 === 0 ? 'var(--forest-500)' : 'var(--forest-700)'}
-                    stroke="var(--forest-800)"
-                    stroke-width="0.5"
-                  />
-                  {@const midAngle = (startAngle + endAngle) / 2}
-                  {@const textRadius = wheelItems.length > 12 ? 58 : wheelItems.length > 8 ? 64 : 70}
-                  {@const tx = Math.cos(midAngle * rad) * textRadius}
-                  {@const ty = Math.sin(midAngle * rad) * textRadius}
-                  {@const label = wheelItems.length > 8 && item.length > 12
-                    ? item.slice(0, 12) + '…'
-                    : item}
-                  {@const fontSize = wheelItems.length > 12 ? 4.5 : wheelItems.length > 6 ? 5.5 : 6}
-                  <text
-                    x={tx}
-                    y={ty}
-                    transform={`rotate(${midAngle + 90} ${tx} ${ty})`}
-                    text-anchor="middle"
-                    dominant-baseline="middle"
-                    fill="white"
-                    font-size={fontSize}
-                    font-family="'Public Sans', sans-serif"
-                  >{label}</text>
-                {/each}
-
-                <!-- Center hub. Amber outer ring matches the pointer; a
-                     small dark dot at the dead centre. -->
-                <circle cx="0" cy="0" r="10" fill="var(--accent-2)" />
-                <circle cx="0" cy="0" r="6" fill="var(--forest-800)" />
-              </g>
-            </svg>
-          </div>
-        {/if}
-
-        <!--
-          Phase: mystery — the wheel has stopped, the answer is locked in,
-          but we deliberately DELAY showing the drawn name so the user
-          feels the suspense of "what's inside the loot box?" A trembling
-          mystery card with a pulsing amber glow stands in for ~MYSTERY_MS.
+          Phase: mystery — the user just clicked Draw. We DON'T show the
+          drawn name yet; instead, the trembling loot box stands in for
+          ~MYSTERY_MS while the user feels the suspense of "what's inside?"
         -->
         {#if phase === 'mystery'}
           <div
@@ -886,64 +702,50 @@
         <span class="sr-only">Drawing…</span>
       </div>
     </section>
-  {:else if currentDraw !== null && !modalOpen}
-    {#key revealKey}
-      <section
-        aria-label="Current draw"
-        class="draw-reveal mx-auto max-w-2xl"
-      >
-        <div class="result-card" data-testid="result-card">
-          <p class="text-fg-muted font-mono text-xs font-semibold uppercase tracking-wider sm:text-sm">
-            Drawn
-          </p>
-          <p class="result-text text-fg mt-3 text-5xl font-semibold break-words [overflow-wrap:anywhere] sm:text-6xl md:text-7xl">
-            {currentDraw}
-          </p>
-          <p class="text-fg-muted font-mono mt-5 text-base sm:text-lg">
-            {#if mode === 'with'}
-              Bucket has {remaining} item{remaining === 1 ? '' : 's'}.
-            {:else}
-              Bucket has {remaining} remaining.
-            {/if}
-          </p>
-        </div>
-      </section>
-    {/key}
   {:else if bucket.length === 0}
     <p class="text-muted text-sm">Add some options to your bucket to begin.</p>
   {/if}
 
   {#if history.length > 0}
     <section aria-label="Draw history" class="space-y-2">
-      <h2 class="text-accent-2 font-mono text-sm font-semibold uppercase tracking-wide">
-        Recent draws
-      </h2>
-      <ul class="space-y-1">
-        {#each history as entry (entry.at + ':' + entry.drawn)}
-          <li class="text-muted text-sm">
-            <span class="text-fg">{entry.drawn}</span>
-            <span class="px-1">—</span>
-            <span>{formatTime(entry.at)}</span>
-          </li>
-        {/each}
-      </ul>
+      <button
+        type="button"
+        onclick={() => (historyOpen = !historyOpen)}
+        aria-expanded={historyOpen}
+        aria-controls="history-list"
+        class="text-accent-2 font-mono flex w-full min-h-[44px] items-center justify-between gap-2 text-sm font-semibold uppercase tracking-wide"
+      >
+        <span>Recent draws ({history.length})</span>
+        <span aria-hidden="true" class="text-base">{historyOpen ? '−' : '+'}</span>
+      </button>
+      {#if historyOpen}
+        <ul id="history-list" class="space-y-1">
+          {#each history as entry (entry.at + ':' + entry.drawn)}
+            <li class="text-muted text-sm">
+              <span class="text-fg">{entry.drawn}</span>
+              <span class="px-1">—</span>
+              <span>{formatTime(entry.at)}</span>
+            </li>
+          {/each}
+        </ul>
 
-      <div class="flex flex-wrap gap-3 pt-2">
-        <button
-          type="button"
-          onclick={clearHistory}
-          class="text-muted hover:text-fg rt-pressable inline-flex min-h-[44px] items-center text-sm font-medium"
-        >
-          Clear history
-        </button>
-        <button
-          type="button"
-          onclick={resetBucket}
-          class="border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[44px] items-center rounded-lg border bg-transparent px-4 py-2 text-sm font-medium"
-        >
-          Reset bucket
-        </button>
-      </div>
+        <div class="flex flex-wrap gap-3 pt-2">
+          <button
+            type="button"
+            onclick={clearHistory}
+            class="text-muted hover:text-fg rt-pressable inline-flex min-h-[44px] items-center text-sm font-medium"
+          >
+            Clear history
+          </button>
+          <button
+            type="button"
+            onclick={resetBucket}
+            class="border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[44px] items-center rounded-lg border bg-transparent px-4 py-2 text-sm font-medium"
+          >
+            Reset bucket
+          </button>
+        </div>
+      {/if}
     </section>
   {/if}
 </div>
