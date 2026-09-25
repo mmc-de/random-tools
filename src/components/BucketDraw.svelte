@@ -593,7 +593,7 @@
         disabled={isAnimating ||
           bucket.length === 0 ||
           (mode === 'without' && remaining === 0)}
-        class="bg-accent text-accent-fg hover:opacity-90 disabled:text-muted disabled:bg-border rt-pressable inline-flex min-h-[56px] items-center gap-2 rounded-xl px-6 py-4 text-lg font-semibold disabled:cursor-not-allowed"
+        class="bg-accent text-accent-fg hover:opacity-90 disabled:text-muted disabled:bg-border rt-pressable inline-flex h-12 min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-xl px-4 text-base font-semibold disabled:cursor-not-allowed sm:flex-none sm:gap-2 sm:px-6 sm:text-lg"
       >
         <Icon name="sparkles" class="h-5 w-5" />
         <span>{t('draw.actions.draw')}</span>
@@ -601,18 +601,18 @@
       <button
         type="button"
         onclick={share}
-        class="border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[44px] items-center gap-2 rounded-lg border bg-transparent px-4 py-2.5 font-medium"
+        class="border-border text-fg hover:border-accent rt-pressable inline-flex h-12 min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-lg border bg-transparent px-3 text-sm font-medium sm:flex-none sm:gap-2 sm:px-4 sm:text-base"
         aria-label={t('draw.actions.share.aria')}
         aria-live="polite"
       >
         {#if shareState === 'copied'}
           <Icon name="check" class="h-4 w-4 text-accent" />
-          <span>{t('draw.actions.share.copied')}</span>
+          <span class="hidden sm:inline">{t('draw.actions.share.copied')}</span>
         {:else if shareState === 'error'}
-          <span>{t('draw.actions.share.failed')}</span>
+          <span class="hidden sm:inline">{t('draw.actions.share.failed')}</span>
         {:else}
           <Icon name="link" />
-          <span>{t('draw.actions.share')}</span>
+          <span class="hidden sm:inline">{t('draw.actions.share')}</span>
         {/if}
       </button>
     </div>

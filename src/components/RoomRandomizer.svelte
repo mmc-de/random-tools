@@ -1144,41 +1144,51 @@
     class="sticky bottom-0 z-50 -mx-4 border-border border-t bg-bg/80 px-4 pt-3 backdrop-blur-md"
     style="padding-bottom: max(0.75rem, env(safe-area-inset-bottom));"
   >
+    <!--
+      Mobile (default): tight row of three compact buttons. Each gets
+      a smaller touch zone (`min-h-[40px]`, `min-w-[40px]`) and tighter
+      padding so Shuffle + Clear + Copy shareable link all fit on a
+      single line at ~360px width. Labels hide on the smallest screens
+      so only the icon shows — relying on familiar shuffle/trash/link
+      glyphs plus the aria-label and the always-visible status pill
+      below for context. Larger screens get more breathing room.
+    -->
     <div class="flex flex-wrap items-center gap-2 sm:gap-3">
       <button
         type="button"
         onclick={shuffle}
-        class="bg-accent text-accent-fg hover:opacity-90 rt-pressable inline-flex min-h-[44px] items-center gap-2 rounded-lg px-4 py-2.5 font-medium"
+        class="bg-accent text-accent-fg hover:opacity-90 rt-pressable inline-flex h-10 min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg px-2 text-sm font-medium sm:flex-none sm:gap-2 sm:px-4 sm:text-base"
       >
         <Icon name="shuffle" />
-        <span>{t('rooms.actions.shuffle')}</span>
+        <span class="hidden sm:inline">{t('rooms.actions.shuffle')}</span>
       </button>
       <button
         type="button"
         onclick={clearAll}
-        class="border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[44px] items-center gap-2 rounded-lg border bg-transparent px-4 py-2.5 font-medium"
+        class="border-border text-fg hover:border-accent rt-pressable inline-flex h-10 min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg border bg-transparent px-2 text-sm font-medium sm:flex-none sm:gap-2 sm:px-4 sm:text-base"
       >
         <Icon name="trash" />
-        <span>{t('rooms.actions.clear')}</span>
+        <span class="hidden sm:inline">{t('rooms.actions.clear')}</span>
       </button>
       <button
         type="button"
         onclick={share}
-        class="border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[44px] items-center gap-2 rounded-lg border bg-transparent px-4 py-2.5 font-medium"
+        class="border-border text-fg hover:border-accent rt-pressable inline-flex h-10 min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg border bg-transparent px-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none sm:gap-2 sm:px-4 sm:text-base"
         aria-label={t('rooms.actions.copy')}
         aria-live="polite"
+        disabled={whatsappDisabled}
       >
         {#if shareState === 'copied'}
           <Icon name="check" class="h-4 w-4 text-accent" />
-          <span>{t('rooms.actions.copied')}</span>
+          <span class="hidden sm:inline">{t('rooms.actions.copied')}</span>
         {:else if shareState === 'error'}
-          <span>{t('rooms.actions.copyFailed')}</span>
+          <span class="hidden sm:inline">{t('rooms.actions.copyFailed')}</span>
         {:else}
           <Icon name="link" />
-          <span>{t('rooms.actions.copy')}</span>
+          <span class="hidden sm:inline">{t('rooms.actions.copy')}</span>
         {/if}
       </button>
-      <span class="text-muted text-xs" aria-live="polite">
+      <span class="text-muted block w-full text-xs" aria-live="polite">
         {#if result}
           {tx('rooms.results.count', { a: result.assigned.length })}{#if result.unassigned.length > 0}, {tx('rooms.results.unassigned.count', { u: result.unassigned.length })}{/if}
         {/if}
