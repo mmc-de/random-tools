@@ -22,11 +22,10 @@
   let clearedFlag = $state<'idle' | 'shown'>('idle');
 
   // Animation state machine.
-  // idle → rumbling → revealing → done → idle (when next draw fires)
-  // Slice 20: the 'rumbling' phase is now a 200ms "wheel fade-in" beat —
-  // the wheel is the entire reveal, not a mystery card.
+  // idle → mystery → revealing → done
   let phase = $state<Phase>('idle');
   let revealKey = $state(0); // bumped per draw so Svelte re-keys the result block.
+  let currentDrawAt = $state<number>(0); // timestamp of the current draw, used by the card meta line.
   let reducedMotion = $state(false);
 
   // Modal state. Slice 19: the entire reveal plays inside a full-screen
@@ -88,7 +87,8 @@
     // chest-open reveal (still no animation, just a fade-in for the name).
     if (reducedMotion) {
       currentDraw = drawn;
-      history = [{ drawn, at: Date.now() }, ...history].slice(0, 10);
+      currentDrawAt = Date.now();
+      history = [{ drawn, at: currentDrawAt }, ...history].slice(0, 10);
       if (mode !== 'with') {
         bucketText = result.remaining.join('\n');
       }
@@ -104,7 +104,8 @@
       // history now, advance to `revealing` for the chest-open burst,
       // then settle on `done`.
       currentDraw = drawn;
-      history = [{ drawn, at: Date.now() }, ...history].slice(0, 10);
+      currentDrawAt = Date.now();
+      history = [{ drawn, at: currentDrawAt }, ...history].slice(0, 10);
       if (mode !== 'with') {
         bucketText = result.remaining.join('\n');
       }
@@ -666,7 +667,7 @@
                   {@const rad = (Math.PI / 180) * angle}
                   {@const dx = Math.cos(rad) * 140}
                   {@const dy = Math.sin(rad) * 140 - 30}
-                  {@const color = i % 3 === 0 ? 'var(--accent-2)' : i % 3 === 1 ? 'var(--accent)' : 'var(--accent-tint)'}
+                  {@const color = i % 3 === 0 ? 'var(--accent-2)' : i % 3 === 1 ? 'var(--accent)' : i % 3 === 1 ? 'var(--accent-tint)' : 'var(--accent-2)'}
                   <rect
                     class="confetti-piece"
                     x="-3"
@@ -679,19 +680,44 @@
                   />
                 {/each}
               </svg>
-              <div
-                class="chest-reveal mt-6 text-center"
+              <article
+                class="chest-reveal chest-card text-center"
                 data-testid="modal-result-card"
               >
-                <p class="text-fg-muted font-mono text-xs font-semibold uppercase tracking-wider sm:text-sm">
-                  Drawn
-                </p>
-                <div class="chest-reveal-burst relative inline-block">
-                  <p class="text-accent mt-3 break-words text-5xl font-semibold [overflow-wrap:anywhere] sm:text-6xl md:text-7xl">
-                    {currentDraw}
-                  </p>
+                <!-- Top stamp band: thin amber strip labeled "DRAWN" with a
+                     thin forest divider underneath. This is the "seal" of
+                     the card. -->
+                <div class="chest-card-stamp">
+                  <span class="chest-card-stamp__label">Drawn</span>
                 </div>
-              </div>
+
+                <!-- Corner sparkles — small decorative ✦ glyphs that mark the
+                     card's corners like a ticket stub. -->
+                <span class="chest-card-corner chest-card-corner--tl" aria-hidden="true">✦</span>
+                <span class="chest-card-corner chest-card-corner--tr" aria-hidden="true">✦</span>
+                <span class="chest-card-corner chest-card-corner--bl" aria-hidden="true">✦</span>
+                <span class="chest-card-corner chest-card-corner--br" aria-hidden="true">✦</span>
+
+                <!-- The drawn option text — wrapped in the chest-reveal-burst
+                     so the existing scale-burst animation still fires. -->
+                <div class="chest-card-body">
+                  <div class="chest-reveal-burst inline-block">
+                    <p class="text-accent break-words font-display font-bold text-4xl [overflow-wrap:anywhere] sm:text-5xl md:text-6xl">
+                      {currentDraw}
+                    </p>
+                  </div>
+                </div>
+
+                <!-- Bottom meta strip: ticket-style info row showing the
+                     mode + a divider tick, like a raffle ticket footer. -->
+                <div class="chest-card-meta">
+                  <span class="chest-card-meta__mode">
+                    {mode === 'with' ? 'With replacement' : 'Without replacement'}
+                  </span>
+                  <span class="chest-card-meta__dot" aria-hidden="true">·</span>
+                  <span class="chest-card-meta__time">{formatTime(currentDrawAt)}</span>
+                </div>
+              </article>
             </div>
           {/key}
         {/if}
@@ -1382,28 +1408,146 @@
     to   { transform: translateY(2px) rotate(8deg); }
   }
 
-  /* ─── Chest-open reveal (the dramatic reveal beat) ────────────────
-   * When the mystery beat ends, the drawn name pops in with a
-   * scale-burst + a brief forest glow that radiates from behind the
-   * text, then settles. Feels like the lid blew off the box.
+  /* ─── Chest-open card (the dramatic reveal beat) ──────────────────
+   * When the mystery beat ends, the drawn name appears inside a
+   * ticket-style card:
+   *   - thin amber stamp band at the top labelled "DRAWN"
+   *   - the drawn option text, centered, with a scale-burst + forest
+   *     glow
+   *   - a bottom meta strip showing the mode + draw time, like a
+   *     raffle ticket footer
+   *   - four small ✦ sparkles in the corners
+   * The chest-reveal-shell stays as the wrapper (it owns the confetti
+   * SVG layer behind the card).
    */
-  .chest-reveal-burst {
-    padding: 1.25rem 2rem;
-    border-radius: var(--radius-xl, 1rem);
+  .chest-reveal-shell {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 14rem;
   }
-  .chest-reveal-burst::before {
+
+  .chest-card {
+    position: relative;
+    width: 100%;
+    max-width: 26rem;
+    background: linear-gradient(180deg,
+      color-mix(in oklch, var(--bg-elevated) 92%, transparent) 0%,
+      color-mix(in oklch, var(--bg-elevated) 100%, transparent) 100%);
+    border: 1px solid color-mix(in oklch, var(--accent) 35%, var(--border) 65%);
+    border-radius: 0.875rem;
+    padding: 0;
+    box-shadow:
+      0 1px 0 color-mix(in oklch, var(--accent) 60%, transparent) inset,
+      0 0 0 1px color-mix(in oklch, var(--accent) 12%, transparent),
+      0 12px 40px color-mix(in oklch, var(--accent) 22%, transparent);
+    animation: chest-card-pop 700ms var(--ease-out);
+    overflow: hidden;
+  }
+  /* Outer ring of forest-tinted shadow that pulses with the reveal. */
+  .chest-card::before {
     content: "";
     position: absolute;
-    inset: 0;
+    inset: -2px;
     border-radius: inherit;
+    pointer-events: none;
     background: radial-gradient(ellipse at center,
-      color-mix(in oklch, var(--accent) 45%, transparent) 0%,
-      color-mix(in oklch, var(--accent) 12%, transparent) 55%,
+      color-mix(in oklch, var(--accent) 50%, transparent) 0%,
+      color-mix(in oklch, var(--accent) 14%, transparent) 55%,
       transparent 100%);
     opacity: 0;
-    animation: chest-glow 700ms var(--ease-out) forwards;
-    pointer-events: none;
+    animation: chest-glow 800ms var(--ease-out) forwards;
     z-index: -1;
+  }
+  @keyframes chest-card-pop {
+    0%   { opacity: 0; transform: scale(0.7) rotate(-1.5deg); }
+    55%  { opacity: 1; transform: scale(1.04) rotate(0.6deg); }
+    100% { opacity: 1; transform: scale(1) rotate(0deg); }
+  }
+
+  /* Top "stamp" band — thin amber strip with the DRAWN label centered. */
+  .chest-card-stamp {
+    background: linear-gradient(90deg,
+      color-mix(in oklch, var(--accent-2) 22%, transparent) 0%,
+      color-mix(in oklch, var(--accent-2) 32%, transparent) 50%,
+      color-mix(in oklch, var(--accent-2) 22%, transparent) 100%);
+    border-bottom: 1px solid color-mix(in oklch, var(--accent-2) 50%, transparent);
+    padding: 0.4rem 1rem;
+    position: relative;
+  }
+  .chest-card-stamp__label {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent-2);
+    display: inline-block;
+    position: relative;
+  }
+  /* Two short tick lines flanking the stamp label, like ticket perforations. */
+  .chest-card-stamp__label::before,
+  .chest-card-stamp__label::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    width: 0.75rem;
+    height: 1px;
+    background: color-mix(in oklch, var(--accent-2) 65%, transparent);
+  }
+  .chest-card-stamp__label::before { left: -1rem; }
+  .chest-card-stamp__label::after  { right: -1rem; }
+
+  /* Center body — the drawn option text. */
+  .chest-card-body {
+    padding: 1.5rem 1.25rem 1.25rem;
+    text-align: center;
+  }
+
+  /* Bottom "meta" strip — mode + draw time, like a ticket footer. */
+  .chest-card-meta {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem 0.6rem;
+    border-top: 1px dashed color-mix(in oklch, var(--accent-2) 35%, transparent);
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.04em;
+    color: var(--fg-muted);
+    text-transform: lowercase;
+  }
+  .chest-card-meta__mode { color: var(--accent); font-weight: 600; }
+  .chest-card-meta__dot  { opacity: 0.55; }
+
+  /* Corner sparkles — small ✦ marks at each corner. */
+  .chest-card-corner {
+    position: absolute;
+    font-size: 0.65rem;
+    line-height: 1;
+    color: color-mix(in oklch, var(--accent-2) 70%, transparent);
+    pointer-events: none;
+    opacity: 0;
+    animation: chest-corner-in 600ms var(--ease-out) 200ms forwards;
+  }
+  .chest-card-corner--tl { top: 0.45rem; left: 0.6rem; }
+  .chest-card-corner--tr { top: 0.45rem; right: 0.6rem; }
+  .chest-card-corner--bl { bottom: 2.05rem; left: 0.6rem; }
+  .chest-card-corner--br { bottom: 2.05rem; right: 0.6rem; }
+  @keyframes chest-corner-in {
+    from { opacity: 0; transform: scale(0.4); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+
+  /* Burst around the drawn text — keeps the existing scale-burst
+   * animation but the burst is now positioned inside the card body,
+   * so the glow radiates from the text within the frame. */
+  .chest-reveal-burst {
+    position: relative;
+    display: inline-block;
+    padding: 0.5rem 0.75rem;
   }
   .chest-reveal-burst > p {
     animation: chest-text 800ms var(--ease-out);
