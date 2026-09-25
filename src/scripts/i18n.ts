@@ -105,6 +105,7 @@ const STRINGS: Record<string, { en: string; de?: string }> = {
 
   "home.subtitle":          { en: "Two tiny tools. No accounts. No tracking. Works offline once loaded.",
                                 de: "Zwei kleine Werkzeuge. Keine Accounts. Kein Tracking. Funktioniert offline nach dem Laden." },
+  "home.open":              { en: "Open",                                    de: "Öffnen" },
   "home.rooms.title":         { en: "Room randomizer",                       de: "Raum-Zufallsgenerator" },
   "home.rooms.subtitle":      { en: "Add people and rooms, then tap Shuffle to assign.",
                                 de: "Personen und Räume hinzufügen, dann auf Mischen tippen." },
@@ -195,6 +196,9 @@ const STRINGS: Record<string, { en: string; de?: string }> = {
   "draw.bucket.options.aria":     { en: "Bucket options",                       de: "Eimer-Optionen" },
   "draw.bucket.chip.placeholder": { en: "+ Add option…",                        de: "+ Option hinzufügen …" },
   "draw.bucket.chip.placeholder.aria": { en: "Add bucket option",               de: "Option zum Eimer hinzufügen" },
+  "draw.bucket.empty":           { en: "No options yet — type below or prefill",  de: "Noch keine Optionen — unten eingeben oder vorladen" },
+  "draw.chip.remove.aria":       { en: "Remove {name}",                            de: "{name} entfernen" },
+  "draw.modal.aria":             { en: "Drawn result",                             de: "Gezogenes Ergebnis" },
 
   "draw.mode.with":               { en: "With replacement",                     de: "Mit Zurücklegen" },
   "draw.mode.without":            { en: "Without replacement",                  de: "Ohne Zurücklegen" },

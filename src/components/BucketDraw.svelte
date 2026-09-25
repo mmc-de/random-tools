@@ -512,14 +512,14 @@
           <button
             type="button"
             class="chip-remove"
-            aria-label={`Remove ${item}`}
+            aria-label={tx('draw.chip.remove.aria', { name: item })}
             onclick={() => removeChip(item)}
           >×</button>
         </span>
       {/each}
 
       {#if bucket.length === 0}
-        <span class="chip-placeholder">No options yet — type below or prefill</span>
+        <span class="chip-placeholder">{t('draw.bucket.empty')}</span>
       {/if}
 
       <input
@@ -636,7 +636,7 @@
              style="height: min(560px, 80vh); min-height: 480px;"
         role="dialog"
         aria-modal="true"
-        aria-label="Drawn result"
+        aria-label={t('draw.modal.aria')}
       >
         <!--
           Modal content area: takes whatever vertical space is left

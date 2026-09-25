@@ -1288,7 +1288,7 @@
                   <span class="results-list-row__name">
                     {a.person}
                     {#if pinnedNames.has(a.person)}
-                      <span class="results-list-row__pin" aria-label="pinned">🔒</span>
+                      <span class="results-list-row__pin" aria-label={t('rooms.results.pinned.aria')}>🔒</span>
                     {/if}
                   </span>
                 </span>

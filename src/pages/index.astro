@@ -21,7 +21,7 @@ const tools = [
     <div class="mx-auto max-w-2xl">
       <h1 class="text-3xl font-semibold tracking-tight">random-tools</h1>
       <p class="text-muted mt-2 text-base sm:text-lg">
-        {t('home.subtitle') ?? 'Two tiny tools. No accounts. No tracking. Works offline once loaded.'}
+        {t('home.subtitle')}
       </p>
 
       <div class="mt-10 grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -34,7 +34,7 @@ const tools = [
               <h2 class="text-xl font-semibold">{t(tool.titleKey)}</h2>
               <p class="text-muted mt-1 text-sm">{t(tool.descKey)}</p>
               <span class="text-accent mt-4 inline-block text-sm font-medium">
-                Open →
+                {t('home.open')} →
               </span>
             </a>
           ))
