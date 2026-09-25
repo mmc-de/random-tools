@@ -199,8 +199,13 @@
   }
 
   function prefillBundesliga(): void {
+    console.log('[DEBUG] prefillBundesliga called');
+    console.log('[DEBUG] BUNDESLIGA_OPTIONS:', BUNDESLIGA_OPTIONS.slice(0, 80));
+    console.log('[DEBUG] bucketText before:', bucketText.slice(0, 80));
     bucketText = BUNDESLIGA_OPTIONS;
+    console.log('[DEBUG] bucketText after:', bucketText.slice(0, 80));
     history = [];
+    console.log('[DEBUG] bucket length:', bucket.length);
   }
 
   function clearAll(): void {
