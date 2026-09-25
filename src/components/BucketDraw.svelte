@@ -9,7 +9,7 @@
   const HISTORY_KEY = 'random-tools:history';
 
   type HistoryEntry = { drawn: string; at: number };
-  type Phase = 'idle' | 'rumbling' | 'revealing' | 'done';
+  type Phase = 'idle' | 'rumbling' | 'mystery' | 'revealing' | 'done';
 
   let mounted = $state(false);
   let bucketText = $state('');
@@ -49,10 +49,14 @@
   let wheelIndex = $state(0);
   let rotation = $state(0);
 
-  // Tunables. ms values keep the loot-box feel without slowing spam-drawing.
-  const WHEEL_FADE_MS = 200; // brief beat so the wheel appears before spinning
-  const SPIN_MS = 4000; // cubic-bezier duration (see CSS .wheel-spin)
-  const REVEAL_MS = 500; // text reveal fade-in
+  // Tunables.
+  //   SPIN_MS = the wheel's cubic-bezier spin duration
+  //   MYSTERY_MS = trembling loot-box beat (after the wheel stops, before
+  //                the drawn name is shown — that's the "tension" beat)
+  //   REVEAL_MS = chest-open flip + glow burst on the drawn name
+  const SPIN_MS = 4200;
+  const MYSTERY_MS = 1100;
+  const REVEAL_MS = 700;
 
   // The parsed bucket is what `draw()` operates on (deduped, trimmed).
   const bucket = $derived(parseBucketInput(bucketText));
@@ -121,9 +125,7 @@
     const targetAngle = fullSpins * 360 + finalAngle;
 
     if (reducedMotion) {
-      // Skip the spin entirely — snap to the final orientation. The CSS
-      // .wheel-spin transition is also disabled via the
-      // prefers-reduced-motion media query.
+      // Skip the spin + mystery beats entirely — snap to the final state.
       rotation = targetAngle;
       currentDraw = drawn;
       history = [{ drawn, at: Date.now() }, ...history].slice(0, 10);
@@ -134,17 +136,19 @@
       phase = 'revealing';
       window.setTimeout(() => {
         phase = 'done';
-      }, 180);
+      }, REVEAL_MS);
       return;
     }
 
     // Two-step spin trick: explicitly stamp the inline style with the
     // starting rotation and `transition: none`, force a reflow so the
-    // browser commits that state, then (after the WHEEL_FADE_MS beat)
-    // clear the inline `transition` override and stamp the new transform
-    // driven by `rotation`. Svelte's reactive `style="transform: ..."`
-    // then takes over, the CSS class's cubic-bezier transition supplies
-    // the deceleration, and the browser interpolates.
+    // browser commits that state, then (immediately after, since the wheel
+    // is already mounted from a previous draw OR for the first draw it
+    // mounts inside the WHEEL_FADE_MS beat) clear the inline `transition`
+    // override and stamp the new transform driven by `rotation`. Svelte's
+    // reactive `style="transform: ..."` then takes over, the CSS class's
+    // cubic-bezier transition supplies the deceleration, and the browser
+    // interpolates.
     const wheelEl = wheelGroupEl;
     if (wheelEl) {
       wheelEl.style.transition = 'none';
@@ -154,34 +158,39 @@
     }
 
     window.setTimeout(() => {
-      // Allow the WHEEL_FADE_MS beat for the wheel to mount, then kick
-      // off the spin and settle currentDraw + history.
+      // The wheel is now mounted and committed at its starting rotation.
+      // Drop the inline transition override so the CSS rule owns it, then
+      // kick off the spin and advance the phase machine.
       if (wheelEl) {
-        // Drop the inline transition override so the CSS rule owns it.
         wheelEl.style.transition = '';
-        // Re-stamp the starting rotation without transition so the
-        // upcoming reactive write to `rotation` is what the browser
-        // animates from (not from a stale previous-frame value).
         wheelEl.style.transform = `rotate(${rotation}deg)`;
-        // Reflow again before the reactive update lands in the next
-        // tick. Svelte's next style patch will then be the *new*
-        // rotation with the cubic-bezier transition active.
         void wheelEl.getBoundingClientRect();
       }
       rotation = targetAngle;
-      currentDraw = drawn;
-      history = [{ drawn, at: Date.now() }, ...history].slice(0, 10);
-      // Without replacement: persist the reduced bucket so chips +
-      // localStorage stay in sync. With replacement: nothing to remove.
-      if (mode !== 'with') {
-        bucketText = result.remaining.join('\n');
-      }
       revealKey++;
-      phase = 'revealing';
+      // Don't commit currentDraw / history yet — the wheel is just
+      // answering the question; the user sees that answer after the
+      // wheel stops + a trembling loot-box beat.
 
       window.setTimeout(() => {
-        phase = 'done';
-      }, REVEAL_MS);
+        // Wheel has stopped. Swap to the trembling loot-box mystery
+        // card. The drawn name still isn't shown — that lands after the
+        // MYSTERY_MS beat so the reveal has tension.
+        phase = 'mystery';
+        currentDraw = drawn;
+        history = [{ drawn, at: Date.now() }, ...history].slice(0, 10);
+        if (mode !== 'with') {
+          bucketText = result.remaining.join('\n');
+        }
+
+        window.setTimeout(() => {
+          // Chest-open: swap to the dramatic name reveal.
+          phase = 'revealing';
+          window.setTimeout(() => {
+            phase = 'done';
+          }, REVEAL_MS);
+        }, MYSTERY_MS);
+      }, SPIN_MS);
     }, WHEEL_FADE_MS);
   }
 
@@ -688,7 +697,7 @@
       role="presentation"
     >
       <div
-        class="draw-modal-card bg-bg-elevated border border-border mx-6 max-w-3xl rounded-2xl p-6 text-center shadow-2xl sm:p-10"
+        class="draw-modal-card bg-bg-elevated border border-border mx-6 max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl p-6 text-center shadow-2xl sm:p-10"
         role="dialog"
         aria-modal="true"
         aria-label="Drawn result"
@@ -701,7 +710,8 @@
           A pointer sits above the wheel; the drawn text fades in below it
           when phase ∈ {revealing, done}.
         -->
-        {#if wheelItems.length > 0}
+        <!-- Phase: rumbling — show the spinning wheel only. -->
+        {#if phase === 'rumbling' && wheelItems.length > 0}
           <div class="glucksrad relative mx-auto flex items-center justify-center">
             <!-- Pointer: amber triangle parked at the top, pointing down
                  into the wheel. This is the operator-fingerprint accent. -->
@@ -792,30 +802,63 @@
               </g>
             </svg>
           </div>
+        {/if}
 
-          {#if phase === 'revealing' || phase === 'done'}
-            {#key revealKey}
-              <div class="glucksrad-reveal mt-8 text-center" data-testid="modal-result-card">
-                <p class="text-fg-muted font-mono text-xs font-semibold uppercase tracking-wider sm:text-sm">
-                  Drawn
-                </p>
+        <!--
+          Phase: mystery — the wheel has stopped, the answer is locked in,
+          but we deliberately DELAY showing the drawn name so the user
+          feels the suspense of "what's inside the loot box?" A trembling
+          mystery card with a pulsing amber glow stands in for ~MYSTERY_MS.
+        -->
+        {#if phase === 'mystery'}
+          <div
+            class="loot-box mt-4 flex flex-col items-center justify-center"
+            data-testid="modal-mystery"
+            aria-live="polite"
+          >
+            <div class="loot-box-glyph relative flex items-center justify-center">
+              <span class="loot-box-emoji" aria-hidden="true">🎁</span>
+              <span class="loot-box-q" aria-hidden="true">?</span>
+              <span class="sr-only">Drawing… opening the loot box.</span>
+            </div>
+            <p class="text-fg-muted font-mono mt-6 text-xs font-semibold uppercase tracking-wider sm:text-sm">
+              Opening the box…
+            </p>
+          </div>
+        {/if}
+
+        <!--
+          Phase: revealing / done — chest-open reveal. The drawn name
+          appears with a dramatic scale-burst + forest glow. Re-keying on
+          revealKey re-runs the entry animation each draw.
+        -->
+        {#if phase === 'revealing' || phase === 'done'}
+          {#key revealKey}
+            <div
+              class="chest-reveal mt-6 text-center"
+              data-testid="modal-result-card"
+            >
+              <p class="text-fg-muted font-mono text-xs font-semibold uppercase tracking-wider sm:text-sm">
+                Drawn
+              </p>
+              <div class="chest-reveal-burst relative inline-block">
                 <p class="text-accent mt-3 break-words text-5xl font-semibold [overflow-wrap:anywhere] sm:text-6xl md:text-7xl">
                   {currentDraw}
                 </p>
               </div>
-            {/key}
-          {/if}
+            </div>
+          {/key}
+        {/if}
 
-          {#if phase === 'done'}
-            <button
-              type="button"
-              bind:this={closeButtonRef}
-              onclick={closeModal}
-              class="border-border text-fg hover:border-accent rt-pressable mt-8 inline-flex min-h-[44px] items-center rounded-lg border bg-transparent px-5 py-2 text-sm font-medium"
-            >
-              Done
-            </button>
-          {/if}
+        {#if phase === 'done'}
+          <button
+            type="button"
+            bind:this={closeButtonRef}
+            onclick={closeModal}
+            class="border-border text-fg hover:border-accent rt-pressable mt-8 inline-flex min-h-[44px] items-center rounded-lg border bg-transparent px-5 py-2 text-sm font-medium"
+          >
+            Done
+          </button>
         {/if}
       </div>
     </div>
@@ -1440,6 +1483,128 @@
     .draw-modal-hidden {
       animation: none;
       opacity: 0;
+    }
+  }
+
+  /* ─── Mystery loot box (the suspense beat) ──────────────────────
+   * Renders during the `mystery` phase. A 🎁 gift emoji with an
+   * overlaid "?" pulses + shakes + glows amber. The user feels the
+   * box "wanting to be opened" before the drawn name is revealed.
+   */
+  .loot-box {
+    min-height: 18rem;
+    padding: 2rem 1rem;
+  }
+  .loot-box-glyph {
+    width: 7rem;
+    height: 7rem;
+    border-radius: 9999px;
+    background:
+      radial-gradient(circle at 50% 50%,
+        color-mix(in oklch, var(--accent-2) 28%, transparent) 0%,
+        color-mix(in oklch, var(--accent-2) 8%, transparent) 60%,
+        transparent 100%);
+    box-shadow:
+      0 0 36px color-mix(in oklch, var(--accent-2) 45%, transparent),
+      0 0 0 1px color-mix(in oklch, var(--accent-2) 35%, transparent);
+    animation: loot-box-pulse 700ms ease-in-out infinite alternate;
+  }
+  .loot-box-emoji {
+    font-size: 3.5rem;
+    line-height: 1;
+    /* The whole glyph container shakes while pulsing. */
+    animation: loot-box-shake 110ms ease-in-out infinite alternate;
+    display: inline-block;
+  }
+  .loot-box-q {
+    position: absolute;
+    top: -0.25rem;
+    right: -0.25rem;
+    font-family: var(--font-display);
+    font-size: 1.75rem;
+    font-weight: var(--fw-bold, 700);
+    color: var(--accent-2);
+    background: var(--bg-elevated);
+    border: 2px solid var(--accent-2);
+    border-radius: 9999px;
+    width: 2.25rem;
+    height: 2.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    animation: loot-box-q-bounce 600ms ease-in-out infinite alternate;
+  }
+  @keyframes loot-box-pulse {
+    from {
+      box-shadow:
+        0 0 24px color-mix(in oklch, var(--accent-2) 35%, transparent),
+        0 0 0 1px color-mix(in oklch, var(--accent-2) 25%, transparent);
+    }
+    to {
+      box-shadow:
+        0 0 60px color-mix(in oklch, var(--accent-2) 70%, transparent),
+        0 0 0 2px color-mix(in oklch, var(--accent-2) 55%, transparent);
+    }
+  }
+  @keyframes loot-box-shake {
+    from { transform: translate(-3px, -1px) rotate(-2deg); }
+    to   { transform: translate(3px, 1px) rotate(2deg); }
+  }
+  @keyframes loot-box-q-bounce {
+    from { transform: translateY(-2px) rotate(-8deg); }
+    to   { transform: translateY(2px) rotate(8deg); }
+  }
+
+  /* ─── Chest-open reveal (the dramatic reveal beat) ────────────────
+   * When the mystery beat ends, the drawn name pops in with a
+   * scale-burst + a brief forest glow that radiates from behind the
+   * text, then settles. Feels like the lid blew off the box.
+   */
+  .chest-reveal-burst {
+    padding: 1.25rem 2rem;
+    border-radius: var(--radius-xl, 1rem);
+  }
+  .chest-reveal-burst::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(ellipse at center,
+      color-mix(in oklch, var(--accent) 45%, transparent) 0%,
+      color-mix(in oklch, var(--accent) 12%, transparent) 55%,
+      transparent 100%);
+    opacity: 0;
+    animation: chest-glow 700ms var(--ease-out) forwards;
+    pointer-events: none;
+    z-index: -1;
+  }
+  .chest-reveal-burst > p {
+    animation: chest-text 700ms var(--ease-out);
+  }
+  @keyframes chest-glow {
+    0%   { opacity: 0; transform: scale(0.4); }
+    40%  { opacity: 1; transform: scale(1.15); }
+    100% { opacity: 0.55; transform: scale(1); }
+  }
+  @keyframes chest-text {
+    0%   { opacity: 0; transform: scale(0.55) translateY(8px); }
+    55%  { opacity: 1; transform: scale(1.08) translateY(-2px); }
+    100% { opacity: 1; transform: scale(1) translateY(0); }
+  }
+
+  /* prefers-reduced-motion: drop the shake + pulse + chest-burst, keep
+   * a simple opacity fade. */
+  @media (prefers-reduced-motion: reduce) {
+    .loot-box-glyph,
+    .loot-box-emoji,
+    .loot-box-q {
+      animation: none !important;
+    }
+    .chest-reveal-burst::before,
+    .chest-reveal-burst > p {
+      animation: none !important;
+      opacity: 1;
     }
   }
 
