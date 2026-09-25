@@ -639,6 +639,15 @@
         aria-label="Drawn result"
       >
         <!--
+          Modal content area: takes whatever vertical space is left
+          between the modal-card's top edge and the Done button (which
+          gets margin-top: auto to pin to the bottom). The mystery
+          box + chest-reveal banner sit inside this wrapper, both
+          vertically centered so the visual focus stays in the
+          middle of the card regardless of card height.
+        -->
+        <div class="draw-modal-content flex flex-1 items-center justify-center">
+        <!--
           Phase: mystery — the user just clicked Draw. We DON'T show the
           drawn name yet; instead, the trembling loot box stands in for
           ~MYSTERY_MS while the user feels the suspense of "what's inside?"
@@ -734,6 +743,7 @@
             </div>
           {/key}
         {/if}
+        </div>
 
         {#if phase === 'done'}
           <button
