@@ -3,6 +3,16 @@
   import { draw, parseBucketInput, type DrawMode } from '~/lib/draw';
   import { BUNDESLIGA_OPTIONS } from '~/lib/bundesliga';
   import Icon from '~/lib/icons.svelte';
+  import { t as tBase, lang } from '~/scripts/i18n';
+
+  // Svelte 5 runes-mode reactivity bridge: every t(...) call in the
+  // template reads `langTick` (a $derived of the lang store) so the
+  // whole template re-renders when the user flips EN/DE.
+  const langTick = $derived($lang);
+  const t = (key: string): string => {
+    void langTick;
+    return tBase(key);
+  };
 
   const BUCKET_KEY = 'random-tools:bucket';
   const MODE_KEY = 'random-tools:mode';
@@ -435,18 +445,21 @@
   });
 </script>
 
-<div class="space-y-6">
+<h1 class="mt-4 text-2xl font-semibold tracking-tight">{t('home.draw.title')}</h1>
+<p class="text-muted mt-1 text-sm">{t('home.draw.subtitle')}</p>
+
+<div class="mt-6 space-y-6">
   <div class="block">
     <div class="text-fg mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 text-sm font-medium">
-      <span class="min-w-0">Bucket</span>
+      <span class="min-w-0">{t('draw.bucket.header')}</span>
       <button
         type="button"
         onclick={prefillBundesliga}
         class="border-border text-fg hover:border-accent rt-pressable inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 font-mono text-sm"
-        aria-label="Prefill bucket with current 1. Bundesliga clubs"
+        aria-label={t('draw.bucket.prefill.aria')}
       >
         <Icon name="football" class="text-base leading-none" />
-        <span>Prefill Bundesliga</span>
+        <span>{t('draw.bucket.prefill')}</span>
       </button>
       <!--
         Slice 21 (R): compact iOS-style mode toggle, inline in the bucket
@@ -462,7 +475,7 @@
           type="button"
           role="switch"
           aria-checked={mode === 'with'}
-          aria-label={mode === 'with' ? 'With replacement — on' : 'Without replacement — on'}
+          aria-label={mode === 'with' ? t('draw.mode.with.aria.on') : t('draw.mode.without.aria.on')}
           onclick={() => setMode(mode === 'with' ? 'without' : 'with')}
           class="mode-toggle rt-pressable"
           data-on={mode === 'with'}
@@ -475,9 +488,9 @@
           type="button"
           onclick={() => setMode(mode === 'with' ? 'without' : 'with')}
           class="text-fg hover:text-accent text-sm font-medium transition-colors"
-          aria-label={mode === 'with' ? 'Mode: With replacement (click to switch to Without replacement)' : 'Mode: Without replacement (click to switch to With replacement)'}
+          aria-label={mode === 'with' ? t('draw.mode.with.aria') : t('draw.mode.without.aria')}
         >
-          {mode === 'with' ? 'With replacement' : 'Without replacement'}
+          {mode === 'with' ? t('draw.mode.with') : t('draw.mode.without')}
         </button>
       </div>
     </div>
@@ -491,7 +504,7 @@
     <div
       class="chip-row border-border bg-bg-elevated flex min-h-[3rem] flex-wrap items-center gap-2 rounded-lg border px-3 py-2 focus-within:border-accent"
       role="group"
-      aria-label="Bucket options"
+      aria-label={t('draw.bucket.options.aria')}
     >
       {#each bucket as item (item)}
         <span class="chip">
@@ -513,8 +526,8 @@
         type="text"
         bind:value={chipInput}
         onkeydown={onChipKeydown}
-        placeholder="+ Add option…"
-        aria-label="Add bucket option"
+        placeholder={t('draw.bucket.chip.placeholder')}
+        aria-label={t('draw.bucket.chip.placeholder.aria')}
         class="chip-input font-mono"
       />
 
@@ -535,16 +548,16 @@
         aria-live="polite"
       >
         {#if clearedFlag === 'shown'}
-          <span class="text-accent text-xs font-medium">Cleared!</span>
+          <span class="text-accent text-xs font-medium">{t('draw.bucket.cleared')}</span>
         {/if}
         <button
           type="button"
           onclick={clearAll}
           disabled={bucket.length === 0 && history.length === 0}
-          aria-label="Clear bucket and history"
+          aria-label={t('draw.bucket.clear.aria')}
           class="text-muted hover:text-fg min-h-[32px] min-w-[44px] rounded px-2 text-xs underline-offset-2 transition-colors hover:underline disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Clear
+          {t('draw.bucket.clear')}
         </button>
       </span>
     </div>
@@ -583,23 +596,23 @@
         class="bg-accent text-accent-fg hover:opacity-90 disabled:text-muted disabled:bg-border rt-pressable inline-flex min-h-[56px] items-center gap-2 rounded-xl px-6 py-4 text-lg font-semibold disabled:cursor-not-allowed"
       >
         <Icon name="sparkles" class="h-5 w-5" />
-        <span>Draw</span>
+        <span>{t('draw.actions.draw')}</span>
       </button>
       <button
         type="button"
         onclick={share}
         class="border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[44px] items-center gap-2 rounded-lg border bg-transparent px-4 py-2.5 font-medium"
-        aria-label="Copy shareable link"
+        aria-label={t('draw.actions.share.aria')}
         aria-live="polite"
       >
         {#if shareState === 'copied'}
           <Icon name="check" class="h-4 w-4 text-accent" />
-          <span>Copied!</span>
+          <span>{t('draw.actions.share.copied')}</span>
         {:else if shareState === 'error'}
-          <span>Copy failed</span>
+          <span>{t('draw.actions.share.failed')}</span>
         {:else}
           <Icon name="link" />
-          <span>Share link</span>
+          <span>{t('draw.actions.share')}</span>
         {/if}
       </button>
     </div>
@@ -644,10 +657,10 @@
               <span class="loot-box-spark loot-box-spark--tl" aria-hidden="true">⚡</span>
               <span class="loot-box-spark loot-box-spark--br" aria-hidden="true">⚡</span>
               <span class="loot-box-ring" aria-hidden="true"></span>
-              <span class="sr-only">Drawing… opening the loot box.</span>
+              <span class="sr-only">{t('draw.modal.drawing.sr')}</span>
             </div>
             <p class="text-fg-muted font-mono mt-6 text-xs font-semibold uppercase tracking-wider sm:text-sm">
-              Opening the box…
+              {t('draw.modal.opening')}
             </p>
           </div>
         {/if}
@@ -712,7 +725,7 @@
                      mode + a divider tick, like a raffle ticket footer. -->
                 <div class="chest-card-meta">
                   <span class="chest-card-meta__mode">
-                    {mode === 'with' ? 'With replacement' : 'Without replacement'}
+                    {mode === 'with' ? t('draw.mode.with') : t('draw.mode.without')}
                   </span>
                   <span class="chest-card-meta__dot" aria-hidden="true">·</span>
                   <span class="chest-card-meta__time">{formatTime(currentDrawAt)}</span>
@@ -729,7 +742,7 @@
             onclick={closeModal}
             class="draw-modal-done border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[44px] items-center rounded-lg border bg-transparent px-5 py-2 text-sm font-medium"
           >
-            Done
+            {t('draw.modal.done')}
           </button>
         {/if}
       </div>
@@ -743,11 +756,11 @@
     visibility — the modal is the only place the drawn name is shown.
   -->
   {#if bucket.length === 0}
-    <p class="text-muted text-sm">Add some options to your bucket, or prefill Bundesliga, then tap Draw.</p>
+    <p class="text-muted text-sm">{t('home.draw.empty')}</p>
   {/if}
 
   {#if history.length > 0}
-    <section aria-label="Draw history" class="space-y-2">
+    <section aria-label={t('draw.history.section.aria')} class="space-y-2">
       <button
         type="button"
         onclick={() => (historyOpen = !historyOpen)}
@@ -755,7 +768,7 @@
         aria-controls="history-list"
         class="text-accent-2 font-mono flex w-full min-h-[44px] items-center justify-between gap-2 text-sm font-semibold uppercase tracking-wide"
       >
-        <span>Recent draws ({history.length})</span>
+        <span>{t('draw.history.title')} ({history.length})</span>
         <span aria-hidden="true" class="text-base">{historyOpen ? '−' : '+'}</span>
       </button>
       {#if historyOpen}

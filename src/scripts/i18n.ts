@@ -75,6 +75,16 @@ export function setLang(next: Lang): void {
     document.documentElement.setAttribute("data-lang", next);
   }
   lang.set(next);
+  // Page-level chrome (h1, subtitles on .astro pages, Base.astro title)
+  // is server-rendered. To update those without restructuring into a
+  // Svelte island, do a soft reload. Svelte components in `client:load`
+  // islands (RoomRandomizer, BucketDraw, LanguageToggle, ThemeToggle)
+  // re-read `currentLang` from localStorage in Base's inline boot script
+  // and pick the right language for first paint — so the reload is
+  // visually just a flicker on the placeholder text.
+  if (typeof window !== "undefined") {
+    window.location.reload();
+  }
 }
 
 /** Plain non-reactive getter — for one-shot reads in .astro files
@@ -110,20 +120,31 @@ const STRINGS: Record<string, { en: string; de?: string }> = {
   "rooms.subtitle":           { en: "Add people and rooms, then tap Shuffle to assign.",
                                 de: "Personen und Räume hinzufügen, dann auf Mischen tippen." },
   "rooms.people.header":      { en: "People",                                de: "Personen" },
-  "rooms.people.hint":        { en: "(type to rename)",                      de: "(zum Umbenennen tippen)" },
+  "rooms.people.hint":        { en: "(type to rename)",                      de: "zum Umbenennen tippen" },
   "rooms.people.add":         { en: "Add person",                            de: "Person hinzufügen" },
+  "rooms.people.add.aria":    { en: "Add person",                            de: "Person hinzufügen" },
   "rooms.people.remove":      { en: "Remove person",                         de: "Person entfernen" },
   "rooms.people.placeholder": { en: "Person 1",                              de: "Person 1" },
+  "rooms.people.pinned":      { en: "Pinned person",                         de: "Zugewiesene Person" },
   "rooms.rooms.header":       { en: "Rooms",                                 de: "Räume" },
-  "rooms.rooms.hint":         { en: "(type to rename)",                      de: "(zum Umbenennen tippen)" },
+  "rooms.rooms.hint":         { en: "(type to rename)",                      de: "zum Umbenennen tippen" },
   "rooms.rooms.add":          { en: "Add room",                              de: "Raum hinzufügen" },
+  "rooms.rooms.add.aria":     { en: "Add room",                              de: "Raum hinzufügen" },
   "rooms.rooms.remove":       { en: "Remove room",                           de: "Raum entfernen" },
   "rooms.rooms.placeholder":  { en: "Room 1",                                de: "Raum 1" },
+  "rooms.rooms.pinned":       { en: "Pinned room",                           de: "Zugewiesener Raum" },
   "rooms.rooms.capacity":     { en: "Capacity",                              de: "Kapazität" },
   "rooms.rooms.capacity.decrease": { en: "Decrease capacity",                de: "Kapazität verringern" },
   "rooms.rooms.capacity.increase": { en: "Increase capacity",                de: "Kapazität erhöhen" },
+  "rooms.rooms.capacity.for": { en: "Capacity for {name}",                   de: "Kapazität für {name}" },
+  "rooms.rooms.fill":         { en: "Fill for {name}",                       de: "Belegung für {name}" },
+  "rooms.rooms.capacity.status": { en: "Capacity status",                    de: "Kapazitätsstatus" },
+  "rooms.rooms.filled":        { en: "Filled",                                de: "Belegt" },
   "rooms.pins.header":        { en: "Pre-assigned pins",                     de: "Vorbelegte Zuweisungen" },
+  "rooms.pins.section":       { en: "Pre-assigned pins",                     de: "Vorbelegte Zuweisungen" },
   "rooms.pins.add":           { en: "Add pin",                               de: "Zuweisung hinzufügen" },
+  "rooms.pins.add.aria":      { en: "Add pin",                               de: "Zuweisung hinzufügen" },
+  "rooms.pins.remove":        { en: "Remove pin",                            de: "Zuweisung entfernen" },
   "rooms.pins.clear":         { en: "Clear pins",                            de: "Zuweisungen löschen" },
   "rooms.pins.person.placeholder": { en: "— pick person —",                  de: "— Person wählen —" },
   "rooms.pins.room.placeholder":   { en: "— pick room —",                    de: "— Raum wählen —" },
@@ -141,6 +162,7 @@ const STRINGS: Record<string, { en: string; de?: string }> = {
   "rooms.capacity.over":      { en: "{p} people · {s} spots · {u} will be unassigned",
                                 de: "{p} Personen · {s} Plätze · {u} ohne Zuordnung" },
 
+  "rooms.results.section":    { en: "Assignment results",                    de: "Zuteilungsergebnis" },
   "rooms.results.title":      { en: "Results",                               de: "Ergebnis" },
   "rooms.results.list":       { en: "List view",                             de: "Listenansicht" },
   "rooms.results.grid":       { en: "Grid view",                             de: "Kartenansicht" },
@@ -157,9 +179,45 @@ const STRINGS: Record<string, { en: string; de?: string }> = {
                                        de: "{u} ohne Zuordnung" },
   "rooms.results.card.empty": { en: "No one assigned.",                       de: "Niemand zugewiesen." },
   "rooms.results.pinned":     { en: "pinned",                                de: "fixiert" },
+  "rooms.results.pinned.aria":{ en: "room pinned",                           de: "Raum fixiert" },
 
   "lang.de":                 { en: "German",                                de: "Deutsch" },
   "lang.en":                 { en: "English",                               de: "Englisch" },
+
+  // Bucket draw
+  "draw.bucket.header":           { en: "Bucket",                              de: "Eimer" },
+  "draw.bucket.prefill":          { en: "Prefill Bundesliga",                  de: "Bundesliga vorladen" },
+  "draw.bucket.prefill.aria":     { en: "Prefill bucket with the current 1. Bundesliga clubs",
+                                      de: "Eimer mit den aktuellen 1. Bundesliga-Vereinen befüllen" },
+  "draw.bucket.clear":            { en: "Clear",                                de: "Leeren" },
+  "draw.bucket.clear.aria":       { en: "Clear bucket and history",            de: "Eimer und Historie leeren" },
+  "draw.bucket.cleared":          { en: "Cleared!",                             de: "Geleert!" },
+  "draw.bucket.options.aria":     { en: "Bucket options",                       de: "Eimer-Optionen" },
+  "draw.bucket.chip.placeholder": { en: "+ Add option…",                        de: "+ Option hinzufügen …" },
+  "draw.bucket.chip.placeholder.aria": { en: "Add bucket option",               de: "Option zum Eimer hinzufügen" },
+
+  "draw.mode.with":               { en: "With replacement",                     de: "Mit Zurücklegen" },
+  "draw.mode.without":            { en: "Without replacement",                  de: "Ohne Zurücklegen" },
+  "draw.mode.with.aria":          { en: "Mode: With replacement (click to switch to Without replacement)",
+                                      de: "Modus: Mit Zurücklegen (klicken zum Wechseln auf Ohne Zurücklegen)" },
+  "draw.mode.without.aria":       { en: "Mode: Without replacement (click to switch to With replacement)",
+                                      de: "Modus: Ohne Zurücklegen (klicken zum Wechseln auf Mit Zurücklegen)" },
+  "draw.mode.with.aria.on":       { en: "With replacement — on",                de: "Mit Zurücklegen — an" },
+  "draw.mode.without.aria.on":    { en: "Without replacement — on",             de: "Ohne Zurücklegen — an" },
+
+  "draw.actions.draw":            { en: "Draw",                                 de: "Ziehen" },
+  "draw.actions.share":           { en: "Share link",                           de: "Link teilen" },
+  "draw.actions.share.aria":      { en: "Copy shareable link",                  de: "Teilbaren Link kopieren" },
+  "draw.actions.share.copied":    { en: "Copied!",                              de: "Kopiert!" },
+  "draw.actions.share.failed":    { en: "Copy failed",                          de: "Kopieren fehlgeschlagen" },
+
+  "draw.modal.done":              { en: "Done",                                 de: "Fertig" },
+  "draw.modal.drawing.sr":        { en: "Drawing… opening the loot box.",        de: "Ziehen … öffne die Überraschungsbox." },
+  "draw.modal.opening":           { en: "Opening the box…",                       de: "Box wird geöffnet …" },
+
+  "draw.history.title":           { en: "Recent draws",                          de: "Letzte Ziehungen" },
+  "draw.history.clear":           { en: "Clear history",                         de: "Historie löschen" },
+  "draw.history.section.aria":    { en: "Draw history",                          de: "Ziehungshistorie" },
 };
 
 /**

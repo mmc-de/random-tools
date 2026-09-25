@@ -833,7 +833,10 @@
 -->
 <span hidden aria-hidden="true" data-lang={langTick}></span>
 
-<div class="space-y-6">
+<h1 class="mt-4 text-2xl font-semibold tracking-tight">{t('rooms.title')}</h1>
+<p class="text-muted mt-1 text-sm">{t('rooms.subtitle')}</p>
+
+<div class="mt-6 space-y-6">
   <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
     <div class="block">
       <div class="text-fg mb-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-2 text-sm font-medium">
@@ -880,7 +883,7 @@
           type="button"
           onclick={addPerson}
           disabled={people.length >= STEPPER_MAX}
-          aria-label="Add person"
+          aria-label={t('rooms.people.add.aria')}
           class="border-border text-fg-muted hover:text-fg hover:border-accent rt-pressable inline-flex min-h-[5rem] items-center justify-center gap-2 rounded-lg border border-dashed bg-transparent px-3 py-2 font-mono text-sm disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Icon name="plus" />
@@ -969,7 +972,7 @@
               <div class="mt-3 space-y-1.5" data-testid="room-fill">
                 <div class="text-fg-muted flex items-center justify-between text-xs">
                   <span class="font-medium uppercase tracking-wide">
-                    Filled
+                    {t('rooms.rooms.filled')}
                   </span>
                   <span class="font-mono tabular-nums">
                     {filled} / {cap}
@@ -999,7 +1002,7 @@
           type="button"
           onclick={addRoom}
           disabled={rooms.length >= STEPPER_MAX}
-          aria-label="Add room"
+          aria-label={t('rooms.rooms.add.aria')}
           class="border-border text-fg-muted hover:text-fg hover:border-accent rt-pressable inline-flex min-h-[6rem] items-center justify-center gap-2 rounded-lg border border-dashed bg-transparent px-3 py-2 font-mono text-sm disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Icon name="plus" />
@@ -1010,7 +1013,7 @@
   </div>
 
   {#if finalPeople.length > 0 && finalRooms.length > 0}
-    <section aria-label="Pre-assigned pins" class="border-border rounded-xl border p-4 sm:p-6">
+    <section aria-label={t('rooms.pins.section')} class="border-border rounded-xl border p-4 sm:p-6">
       <div class="flex items-center justify-between gap-2">
         <h2 class="text-accent-2 font-mono text-sm font-semibold uppercase tracking-wide">
           {t('rooms.pins.header')}
@@ -1041,7 +1044,7 @@
                 onchange={(e) => updatePinPerson(row.id, (e.currentTarget as HTMLSelectElement).value)}
                 class="border-border bg-bg text-fg min-w-[140px] rounded-lg border px-3 py-2 text-base"
                 style="font-size: 16px"
-                aria-label="Pinned person"
+                aria-label={t('rooms.people.pinned')}
               >
                 <option value="">{t('rooms.pins.person.placeholder')}</option>
                 {#each finalPeople as person (person)}
@@ -1056,7 +1059,7 @@
                 onchange={(e) => updatePinRoom(row.id, (e.currentTarget as HTMLSelectElement).value)}
                 class="border-border bg-bg text-fg min-w-[140px] rounded-lg border px-3 py-2 text-base"
                 style="font-size: 16px"
-                aria-label="Pinned room"
+                aria-label={t('rooms.rooms.pinned')}
               >
                 <option value="">{t('rooms.pins.room.placeholder')}</option>
                 {#each finalRooms as room (room.name)}
@@ -1067,7 +1070,7 @@
             <button
               type="button"
               onclick={() => removePinAt(row.id)}
-              aria-label="Remove pin"
+              aria-label={t('rooms.pins.remove')}
               class="text-fg-muted hover:text-fg rt-pressable inline-flex h-9 w-9 items-center justify-center self-end rounded-full text-base leading-none sm:self-auto"
             >
               ×
@@ -1080,7 +1083,7 @@
         type="button"
         onclick={addPin}
         disabled={pins.length >= STEPPER_MAX}
-        aria-label="Add pin"
+        aria-label={t('rooms.pins.add.aria')}
         class="border-border text-fg-muted hover:text-fg hover:border-accent rt-pressable mt-3 inline-flex w-full min-h-[3rem] items-center justify-center gap-2 rounded-lg border border-dashed bg-transparent px-3 py-2 font-mono text-sm disabled:cursor-not-allowed disabled:opacity-40"
       >
         <Icon name="plus" />
@@ -1088,7 +1091,7 @@
       </button>
     </section>
   {:else if finalPeople.length > 0}
-    <section aria-label="Pre-assigned pins" class="border-border rounded-xl border p-4 sm:p-6">
+    <section aria-label={t('rooms.pins.section')} class="border-border rounded-xl border p-4 sm:p-6">
       <div class="flex items-center justify-between gap-2">
         <h2 class="text-accent-2 font-mono text-sm font-semibold uppercase tracking-wide">
           {t('rooms.pins.header')}
@@ -1103,7 +1106,7 @@
   {#if capacityLabel}
     {@const over = capacityDelta > 0}
     {@const ok = capacityDelta === 0}
-    <div class="flex justify-center" aria-label="Capacity status">
+    <div class="flex justify-center" aria-label={t('rooms.rooms.capacity.status')}>
       <span
         class="font-mono text-sm"
         class:bg-accent-tint={!over}
@@ -1185,7 +1188,7 @@
 
   {#if result}
     <section
-      aria-label="Assignment results"
+      aria-label={t('rooms.results.section')}
       class="border-border rt-shimmer rounded-xl border p-4 sm:p-6"
       class:shimmering
     >
@@ -1299,7 +1302,7 @@
                   <h3 class="results-room-card__name font-display font-semibold">
                     {r.name}
                     {#if r.pinned}
-                      <span class="text-fg-meta ml-1 text-xs" aria-label="room pinned">🔒</span>
+                      <span class="text-fg-meta ml-1 text-xs" aria-label={t('rooms.results.pinned.aria')}>🔒</span>
                     {/if}
                   </h3>
                   <span class="results-room-card__count font-mono text-xs">

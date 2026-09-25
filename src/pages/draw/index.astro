@@ -1,18 +1,13 @@
 ---
 import Base from "~/layouts/Base.astro";
 import BucketDraw from "~/components/BucketDraw.svelte";
-import { t } from "~/scripts/i18n";
 ---
 
 <Base title="Bucket draw · random-tools" description="Draw one option from a bucket. With or without replacement.">
   <main class="min-h-screen px-4 py-8 sm:py-12">
     <div class="mx-auto max-w-2xl">
       <a href="/random-tools/" class="text-muted text-sm hover:text-accent">← random-tools</a>
-      <h1 class="mt-4 text-2xl font-semibold tracking-tight">{t('home.draw.title')}</h1>
-      <p class="text-muted mt-1 text-sm">{t('home.draw.subtitle')}</p>
-      <div class="mt-6">
-        <BucketDraw client:load />
-      </div>
+      <BucketDraw client:load />
     </div>
   </main>
 </Base>
