@@ -1157,7 +1157,7 @@
       <button
         type="button"
         onclick={shuffle}
-        class="bg-accent text-accent-fg hover:opacity-90 rt-pressable inline-flex h-10 min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg px-2 text-sm font-medium sm:flex-none sm:gap-2 sm:px-4 sm:text-base"
+        class="bg-accent text-accent-fg hover:opacity-90 rt-pressable inline-flex h-10 min-h-[40px] min-w-[40px] flex-1 items-center justify-center gap-1 rounded-lg px-1.5 text-sm font-medium sm:flex-none sm:gap-2 sm:px-4 sm:text-base"
       >
         <Icon name="shuffle" />
         <span class="hidden sm:inline">{t('rooms.actions.shuffle')}</span>
@@ -1165,7 +1165,7 @@
       <button
         type="button"
         onclick={clearAll}
-        class="border-border text-fg hover:border-accent rt-pressable inline-flex h-10 min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg border bg-transparent px-2 text-sm font-medium sm:flex-none sm:gap-2 sm:px-4 sm:text-base"
+        class="border-border text-fg hover:border-accent rt-pressable inline-flex h-10 min-h-[40px] min-w-[40px] flex-1 items-center justify-center gap-1 rounded-lg border bg-transparent px-1.5 text-sm font-medium sm:flex-none sm:gap-2 sm:px-4 sm:text-base"
       >
         <Icon name="trash" />
         <span class="hidden sm:inline">{t('rooms.actions.clear')}</span>
@@ -1173,7 +1173,7 @@
       <button
         type="button"
         onclick={share}
-        class="border-border text-fg hover:border-accent rt-pressable inline-flex h-10 min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg border bg-transparent px-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none sm:gap-2 sm:px-4 sm:text-base"
+        class="border-border text-fg hover:border-accent rt-pressable inline-flex h-10 min-h-[40px] min-w-[40px] flex-1 items-center justify-center gap-1 rounded-lg border bg-transparent px-1.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none sm:gap-2 sm:px-4 sm:text-base"
         aria-label={t('rooms.actions.copy')}
         aria-live="polite"
         disabled={whatsappDisabled}

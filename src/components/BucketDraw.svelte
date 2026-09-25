@@ -593,7 +593,7 @@
         disabled={isAnimating ||
           bucket.length === 0 ||
           (mode === 'without' && remaining === 0)}
-        class="bg-accent text-accent-fg hover:opacity-90 disabled:text-muted disabled:bg-border rt-pressable inline-flex h-12 min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-xl px-4 text-base font-semibold disabled:cursor-not-allowed sm:flex-none sm:gap-2 sm:px-6 sm:text-lg"
+        class="bg-accent text-accent-fg hover:opacity-90 disabled:text-muted disabled:bg-border rt-pressable inline-flex h-11 min-h-[44px] min-w-[44px] flex-1 items-center justify-center gap-1.5 rounded-xl px-3 text-base font-semibold disabled:cursor-not-allowed sm:flex-none sm:gap-2 sm:px-6 sm:text-lg"
       >
         <Icon name="sparkles" class="h-5 w-5" />
         <span>{t('draw.actions.draw')}</span>
@@ -601,7 +601,7 @@
       <button
         type="button"
         onclick={share}
-        class="border-border text-fg hover:border-accent rt-pressable inline-flex h-12 min-h-[48px] flex-1 items-center justify-center gap-1.5 rounded-lg border bg-transparent px-3 text-sm font-medium sm:flex-none sm:gap-2 sm:px-4 sm:text-base"
+        class="border-border text-fg hover:border-accent rt-pressable inline-flex h-11 min-h-[44px] min-w-[44px] flex-1 items-center justify-center gap-1.5 rounded-lg border bg-transparent px-2 text-sm font-medium sm:flex-none sm:gap-2 sm:px-4 sm:text-base"
         aria-label={t('draw.actions.share.aria')}
         aria-live="polite"
       >
