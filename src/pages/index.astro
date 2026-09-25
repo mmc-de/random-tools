@@ -1,49 +1,12 @@
 ---
 import Base from "~/layouts/Base.astro";
-import { t } from "~/scripts/i18n";
-
-const tools = [
-  {
-    href: "/random-tools/room-randomizer/",
-    titleKey: "home.rooms.title",
-    descKey: "home.rooms.subtitle",
-  },
-  {
-    href: "/random-tools/draw/",
-    titleKey: "home.draw.title",
-    descKey: "home.draw.subtitle",
-  },
-];
+import Landing from "~/components/Landing.svelte";
 ---
 
 <Base title="random-tools">
   <main class="min-h-screen px-4 py-12 sm:py-16">
     <div class="mx-auto max-w-2xl">
-      <h1 class="text-3xl font-semibold tracking-tight">random-tools</h1>
-      <p class="text-muted mt-2 text-base sm:text-lg">
-        {t('home.subtitle')}
-      </p>
-
-      <div class="mt-10 grid grid-cols-1 gap-4 md:grid-cols-2">
-        {
-          tools.map((tool) => (
-            <a
-              href={tool.href}
-              class="group border-border rounded-xl border p-6 transition-colors hover:border-accent"
-            >
-              <h2 class="text-xl font-semibold">{t(tool.titleKey)}</h2>
-              <p class="text-muted mt-1 text-sm">{t(tool.descKey)}</p>
-              <span class="text-accent mt-4 inline-block text-sm font-medium">
-                {t('home.open')} →
-              </span>
-            </a>
-          ))
-        }
-      </div>
-
-      <footer class="text-muted mt-12 text-xs">
-        <span aria-hidden="true">⚡ </span>{t('home.footer')}
-      </footer>
+      <Landing client:load />
     </div>
   </main>
 </Base>
