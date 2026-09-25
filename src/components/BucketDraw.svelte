@@ -3,7 +3,7 @@
   import { draw, parseBucketInput, type DrawMode } from '~/lib/draw';
   import { BUNDESLIGA_OPTIONS } from '~/lib/bundesliga';
   import Icon from '~/lib/icons.svelte';
-  import { t as tBase, lang } from '~/scripts/i18n';
+  import { t as tBase, tx as txBase, lang } from '~/scripts/i18n';
 
   // Svelte 5 runes-mode reactivity bridge: every t(...) call in the
   // template reads `langTick` (a $derived of the lang store) so the
@@ -12,6 +12,10 @@
   const t = (key: string): string => {
     void langTick;
     return tBase(key);
+  };
+  const tx = (key: string, vars: Record<string, string | number>): string => {
+    void langTick;
+    return txBase(key, vars);
   };
 
   const BUCKET_KEY = 'random-tools:bucket';
@@ -199,11 +203,7 @@
   }
 
   function prefillBundesliga(): void {
-    console.log('[DEBUG] prefillBundesliga called, bucketText before:', bucketText.slice(0, 80));
     bucketText = BUNDESLIGA_OPTIONS;
-    console.log('[DEBUG] after assignment, bucket.length:', bucket.length);
-    // Force a re-render by reading bucket explicitly
-    console.log('[DEBUG] bucket[0]:', bucket[0]);
     history = [];
   }
 
