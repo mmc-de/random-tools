@@ -50,10 +50,12 @@
   let rotation = $state(0);
 
   // Tunables.
+  //   WHEEL_FADE_MS = brief beat so the wheel appears before the spin
   //   SPIN_MS = the wheel's cubic-bezier spin duration
   //   MYSTERY_MS = trembling loot-box beat (after the wheel stops, before
   //                the drawn name is shown — that's the "tension" beat)
   //   REVEAL_MS = chest-open flip + glow burst on the drawn name
+  const WHEEL_FADE_MS = 200;
   const SPIN_MS = 4200;
   const MYSTERY_MS = 1100;
   const REVEAL_MS = 700;
@@ -873,7 +875,7 @@
     backdrop. When the user closes the modal, the in-page state is already
     correct.
   -->
-  {#if phase === 'rumbling'}
+  {#if phase === 'rumbling' && !modalOpen}
     <section
       aria-label="Drawing"
       aria-live="polite"
@@ -884,7 +886,7 @@
         <span class="sr-only">Drawing…</span>
       </div>
     </section>
-  {:else if currentDraw !== null}
+  {:else if currentDraw !== null && !modalOpen}
     {#key revealKey}
       <section
         aria-label="Current draw"
