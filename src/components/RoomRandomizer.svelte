@@ -3,7 +3,7 @@
   import { fly } from 'svelte/transition';
   import { assignRooms, formatAssignmentForShare, type Pin, type Room } from '~/lib/random';
   import Icon from '~/lib/icons.svelte';
-  import { t, tx, lang } from '~/scripts/i18n';
+  import { t as tBase, tx as txBase, lang } from '~/scripts/i18n';
 
   type Assigned = { person: string; room: string };
   type Result = { assigned: Assigned[]; unassigned: string[] } | null;
@@ -64,12 +64,26 @@
   let nextRoomId = $state(0);
   let rooms = $state<RoomEntry[]>([]);
   let result = $state<Result>(null);
-  // Svelte 5 runes-mode template auto-subscription `$lang` is rejected
-  // by the compiler. Use `$derived` instead — `$lang` inside a derived
-  // expression is the documented way to bridge a store into a runes-
-  // mode reactive read. The template reads `langTick` below which forces
-  // the dependency, so the whole template re-runs when the store fires.
+  // Language bridge. Svelte 5 in runes-mode refuses `$store` auto-
+  // subscription in the template, and `t(key)` reads a plain module
+  // variable that Svelte can't see as reactive. Workaround: read `$lang`
+  // in a `$derived` so every t(...) call below it shares the same
+  // reactive source — they all re-run when $derived ticks.
   const langTick = $derived($lang);
+
+  /**
+   * Localized lookup. Calls the base `t()` and appends a hidden read of
+   * `langTick` so the dependency is wired into Svelte's template
+   * reactivity graph for THIS block. The string is unchanged.
+   */
+  function t(key: string, ...rest: never[]): string {
+    void langTick;
+    return rest.length === 0 ? tBase(key) : tBase(key);
+  }
+  function tx(key: string, vars: Record<string, string | number>): string {
+    void langTick;
+    return txBase(key, vars);
+  }
   let shareState = $state<'idle' | 'copied' | 'error'>('idle');
   // View mode for the results section: a flat list (default) or a grid
   // of cards (one per room, with the assigned people underneath). The
