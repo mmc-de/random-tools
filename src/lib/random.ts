@@ -198,16 +198,24 @@ export function formatAssignmentForShare(
   result: AssignmentResult,
   toolUrl?: string,
 ): string {
-  const lines: string[] = ['🏠 Room assignments', ''];
+  const lines: string[] = ['*🏠 Room assignments*', ''];
+
+  // WhatsApp's *bold* syntax is two asterisks. We bold the person name and
+  // the room name, separated by a plain `→` arrow. The dash is the canonical
+  // markdown list marker that most messengers (WhatsApp, Signal, Telegram)
+  // render as a bullet.
   for (const a of result.assigned) {
-    lines.push(`• ${a.person} → ${a.room}`);
+    lines.push(`- *${a.person}* → *${a.room}*`);
   }
+
   if (result.unassigned.length > 0) {
     lines.push('', `_Unassigned: ${result.unassigned.join(', ')}_`);
   }
+
   const url = toolUrl?.trim();
   if (url) {
-    lines.push('', `👉 Open the tool: ${url}`);
+    lines.push('', `👉 *Open the tool:* ${url}`);
   }
+
   return lines.join('\n');
 }

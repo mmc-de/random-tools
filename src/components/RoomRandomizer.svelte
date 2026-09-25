@@ -53,6 +53,11 @@
   let rooms = $state<RoomEntry[]>([]);
   let result = $state<Result>(null);
   let shareState = $state<'idle' | 'copied' | 'error'>('idle');
+  // View mode for the results section: a flat list (default) or a grid
+  // of cards (one per room, with the assigned people underneath). The
+  // WhatsApp share text is identical for both — the toggle only affects
+  // what's rendered on the page.
+  let viewMode = $state<'list' | 'grid'>('list');
   // Brief "Sent ✓" feedback after the WhatsApp share opens wa.me. We don't
   // know whether the user actually sends the message (wa.me opens in a new
   // tab), so this is purely a visual confirmation that the click landed.
@@ -154,6 +159,31 @@
         )
       : [],
   );
+
+  // Group assignments by room for the grid view. Each entry: { room,
+  // capacity, people[] }. Unassigned people are kept in a separate
+  // bucket. Rooms are iterated in their existing order (the user-set
+  // order from the room cards), not the sort-by-name order — that way
+  // the grid mirrors the input layout.
+  const roomsWithAssignments = $derived.by(() => {
+    if (!result) return [];
+    const byRoom = new Map<string, string[]>();
+    for (const r of rooms) byRoom.set(r.name, []);
+    for (const a of result.assigned) {
+      const list = byRoom.get(a.room);
+      if (list) list.push(a.person);
+    }
+    return rooms
+      .filter((r) => (byRoom.get(r.name)?.length ?? 0) > 0 || result.assigned.length > 0)
+      .map((r) => ({
+        name: r.name,
+        capacity: r.capacity,
+        people: byRoom.get(r.name) ?? [],
+        pinned: result.assigned
+          .filter((a) => a.room === r.name)
+          .some((a) => pinnedNames.has(a.person)),
+      }));
+  });
 
   // Slice 15 (J): global capacity pill. Predictive — answers "is my setup
   // even going to fit?" before the user shuffles. Three states:
@@ -1086,21 +1116,99 @@
       class="border-border rt-shimmer rounded-xl border p-4 sm:p-6"
       class:shimmering
     >
-      <h2 class="text-fg text-lg font-semibold">Results</h2>
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <h2 class="text-fg text-lg font-semibold">Results</h2>
+        <!--
+          View-mode toggle: list (default) or grid. Pure display — the
+          WhatsApp share text is unchanged. Uses the same compact-pill
+          style as the bucket-draw mode toggle (slice 21).
+        -->
+        <div
+          role="group"
+          aria-label="Results view"
+          class="border-border inline-flex items-center rounded-full border bg-bg-elevated p-0.5"
+        >
+          <button
+            type="button"
+            class="results-view-btn"
+            class:is-active={viewMode === 'list'}
+            aria-pressed={viewMode === 'list'}
+            onclick={() => (viewMode = 'list')}
+            title="Show as a list"
+          >
+            <span aria-hidden="true">≡</span>
+            <span class="sr-only">List view</span>
+          </button>
+          <button
+            type="button"
+            class="results-view-btn"
+            class:is-active={viewMode === 'grid'}
+            aria-pressed={viewMode === 'grid'}
+            onclick={() => (viewMode = 'grid')}
+            title="Show as a grid of cards"
+          >
+            <span aria-hidden="true">▦</span>
+            <span class="sr-only">Grid view</span>
+          </button>
+        </div>
+      </div>
 
       {#if result.assigned.length > 0}
-        <ul class="mt-3 space-y-1">
-          {#each sortedAssigned as a (a.person + '|' + a.room)}
-            <li class="text-fg text-base">
-              <span class="font-semibold">{a.person}</span>
-              {#if pinnedNames.has(a.person)}
-                <span class="text-fg-meta ml-1 text-xs" aria-label="pinned">🔒</span>
-              {/if}
-              <span class="text-fg-meta px-1" aria-hidden="true">→</span>
-              <span class="font-semibold text-accent">{a.room}</span>
-            </li>
-          {/each}
-        </ul>
+        {#if viewMode === 'list'}
+          <!--
+            List view: each row is a person with the room name. The room
+            name sits in a forest-tinted pill so the eye groups the room
+            quickly when scrolling. Pinned people get a subtle 🔒 glyph.
+          -->
+          <ul class="mt-3 divide-y divide-border/50">
+            {#each sortedAssigned as a (a.person + '|' + a.room)}
+              <li class="flex items-center justify-between gap-3 py-1.5 text-base">
+                <span class="text-fg min-w-0 truncate font-medium">
+                  {a.person}
+                  {#if pinnedNames.has(a.person)}
+                    <span class="text-fg-meta ml-1 text-xs" aria-label="pinned">🔒</span>
+                  {/if}
+                </span>
+                <span class="text-fg-meta shrink-0 text-sm" aria-hidden="true">→</span>
+                <span class="results-room-pill font-mono font-semibold">
+                  {a.room}
+                </span>
+              </li>
+            {/each}
+          </ul>
+        {:else}
+          <!--
+            Grid view: one card per room, with assigned people listed
+            underneath. Pinned rooms get a small 🔒 glyph in the header.
+            Empty rooms are hidden (they'd just be empty cards).
+          -->
+          <div class="results-grid mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {#each roomsWithAssignments as r (r.name)}
+              <article class="results-room-card">
+                <header class="results-room-card__head">
+                  <h3 class="results-room-card__name font-display font-semibold">
+                    {r.name}
+                    {#if r.pinned}
+                      <span class="text-fg-meta ml-1 text-xs" aria-label="room pinned">🔒</span>
+                    {/if}
+                  </h3>
+                  <span class="results-room-card__count font-mono text-xs">
+                    {r.people.length}/{r.capacity}
+                  </span>
+                </header>
+                {#if r.people.length > 0}
+                  <ul class="results-room-card__people">
+                    {#each r.people as p (p)}
+                      <li>{p}</li>
+                    {/each}
+                  </ul>
+                {:else}
+                  <p class="results-room-card__empty">No one assigned.</p>
+                {/if}
+              </article>
+            {/each}
+          </div>
+        {/if}
       {:else}
         <p class="text-muted mt-3 text-sm">No one assigned yet.</p>
       {/if}
@@ -1194,6 +1302,102 @@
       transform: translateX(100%);
       opacity: 0;
     }
+  }
+
+  /* ─── Results view-mode toggle (slice 30) ───────────────────────
+   * Compact pill that flips between list and grid layouts. Same shape
+   * as the bucket-draw mode toggle (slice 21) for consistency. */
+  .results-view-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 9999px;
+    border: 0;
+    background: transparent;
+    color: var(--fg-muted);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    transition:
+      background-color 160ms var(--ease-out),
+      color 160ms var(--ease-out);
+  }
+  .results-view-btn:hover { color: var(--fg); }
+  .results-view-btn.is-active {
+    background-color: var(--accent);
+    color: var(--accent-fg, #fafafa);
+  }
+
+  /* List view: room name in a forest-tinted pill on the right. */
+  .results-room-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.55rem;
+    border-radius: 9999px;
+    background: color-mix(in oklch, var(--accent) 18%, transparent);
+    color: var(--accent);
+    border: 1px solid color-mix(in oklch, var(--accent) 30%, transparent);
+    font-size: 0.8rem;
+    letter-spacing: 0.02em;
+    max-width: 60%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Grid view: each room gets its own card. */
+  .results-room-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    padding: 0.75rem 0.9rem 0.85rem;
+    transition: transform 150ms var(--ease-out), border-color 150ms var(--ease-out);
+  }
+  .results-room-card:hover {
+    border-color: color-mix(in oklch, var(--accent) 50%, var(--border) 50%);
+    transform: translateY(-1px);
+  }
+  .results-room-card__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding-bottom: 0.5rem;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px dashed color-mix(in oklch, var(--accent) 30%, transparent);
+  }
+  .results-room-card__name {
+    color: var(--fg);
+    font-size: 0.95rem;
+    letter-spacing: -0.01em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .results-room-card__count {
+    color: var(--fg-muted);
+    flex-shrink: 0;
+  }
+  .results-room-card__people {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+  }
+  .results-room-card__people li {
+    font-size: 0.85rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 9999px;
+    background: color-mix(in oklch, var(--accent) 8%, transparent);
+    color: var(--fg);
+    border: 1px solid color-mix(in oklch, var(--accent) 15%, transparent);
+  }
+  .results-room-card__empty {
+    color: var(--fg-muted);
+    font-size: 0.8rem;
+    font-style: italic;
   }
 
   /* ─── Per-room fill bar (slice 15) ──────────────────────────────
