@@ -654,7 +654,7 @@
         -->
         {#if phase === 'mystery'}
           <div
-            class="loot-box mt-4 flex flex-col items-center justify-center"
+            class="loot-box flex flex-col items-center"
             data-testid="modal-mystery"
             aria-live="polite"
           >
