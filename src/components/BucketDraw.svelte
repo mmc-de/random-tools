@@ -618,7 +618,7 @@
       role="presentation"
     >
       <div
-        class="draw-modal-card bg-bg-elevated border border-border mx-6 flex w-[min(640px,92vw)] flex-col items-center justify-center overflow-hidden rounded-2xl p-6 text-center shadow-2xl sm:p-10"
+        class="draw-modal-card bg-bg-elevated border border-border mx-6 flex w-[min(640px,92vw)] flex-col items-center overflow-hidden rounded-2xl p-6 text-center shadow-2xl sm:p-10"
              style="height: min(560px, 80vh); min-height: 480px;"
         role="dialog"
         aria-modal="true"
@@ -701,7 +701,7 @@
             type="button"
             bind:this={closeButtonRef}
             onclick={closeModal}
-            class="border-border text-fg hover:border-accent rt-pressable mt-8 inline-flex min-h-[44px] items-center rounded-lg border bg-transparent px-5 py-2 text-sm font-medium"
+            class="draw-modal-done border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[44px] items-center rounded-lg border bg-transparent px-5 py-2 text-sm font-medium"
           >
             Done
           </button>
@@ -711,27 +711,13 @@
   {/if}
 
   <!--
-    Reveal block.
-    We render the mystery placeholder during the rumble phase (always, while
-    currentDraw may or may not yet be set) and swap to the actual result on
-    reveal. Re-keying on revealKey re-runs the entry animation each draw.
-    Slice 19: the inline card still updates — it just lives behind the modal
-    backdrop. When the user closes the modal, the in-page state is already
-    correct.
+    Empty-state nudge: when the bucket has no items, show a hint so the
+    user knows what to do. Recent draws (collapsed by default) and the
+    Draw/Share button row in the sticky action bar handle their own
+    visibility — the modal is the only place the drawn name is shown.
   -->
-  {#if phase === 'rumbling' && !modalOpen}
-    <section
-      aria-label="Drawing"
-      aria-live="polite"
-      class="draw-reveal mx-auto max-w-2xl"
-    >
-      <div class="mystery-card" data-testid="mystery-card">
-        <span class="mystery-glyph" aria-hidden="true">🎁</span>
-        <span class="sr-only">Drawing…</span>
-      </div>
-    </section>
-  {:else if bucket.length === 0}
-    <p class="text-muted text-sm">Add some options to your bucket to begin.</p>
+  {#if bucket.length === 0}
+    <p class="text-muted text-sm">Add some options to your bucket, or prefill Bundesliga, then tap Draw.</p>
   {/if}
 
   {#if history.length > 0}
@@ -1273,6 +1259,14 @@
     box-shadow:
       0 0 0 1px var(--border),
       0 0 48px color-mix(in oklch, var(--accent) 35%, transparent);
+  }
+  /* Done button is pinned to the bottom of the fixed-size card via
+   * `margin-top: auto` inside the flex-col container. Its appearance on
+   * the revealing → done phase transition doesn't shift the chest-reveal
+   * text, because the reveal sits at the natural top of the card and
+   * the button takes whatever flex space is left below it. */
+  .draw-modal-done {
+    margin-top: auto;
   }
 
   @keyframes draw-modal-fade-in {

@@ -720,7 +720,7 @@
       <div class="text-fg mb-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-2 text-sm font-medium">
         <span class="min-w-0">
           People
-          <span class="text-muted font-normal">(click a card to rename)</span>
+          <span class="text-muted font-normal">(type to rename)</span>
         </span>
         <span class="text-muted font-mono text-xs tabular-nums" aria-live="polite">
           {people.length} / {STEPPER_MAX}
@@ -774,7 +774,7 @@
       <div class="text-fg mb-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-2 text-sm font-medium">
         <span class="min-w-0">
           Rooms
-          <span class="text-muted font-normal">(click a card to rename)</span>
+          <span class="text-muted font-normal">(type to rename)</span>
         </span>
         <span class="text-muted font-mono text-xs tabular-nums" aria-live="polite">
           {rooms.length} / {STEPPER_MAX}
