@@ -807,6 +807,13 @@
 
 <svelte:window on:keydown={onShareKey} />
 
+<!--
+  Subscribe to the lang store at the top of the template so the whole
+  component re-renders when the language flips. Hidden visually; the
+  sole purpose is to wire Svelte 5's template reactivity to the store.
+-->
+{#if false}{$lang}{/if}
+
 <div class="space-y-6">
   <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
     <div class="block">
