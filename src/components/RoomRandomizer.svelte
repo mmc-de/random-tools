@@ -3,7 +3,7 @@
   import { fly } from 'svelte/transition';
   import { assignRooms, formatAssignmentForShare, type Pin, type Room } from '~/lib/random';
   import Icon from '~/lib/icons.svelte';
-  import { t, tx, lang } from '~/scripts/i18n';
+  import { t, tx, lang, getLang, type Lang } from '~/scripts/i18n';
 
   type Assigned = { person: string; room: string };
   type Result = { assigned: Assigned[]; unassigned: string[] } | null;
@@ -64,12 +64,16 @@
   let nextRoomId = $state(0);
   let rooms = $state<RoomEntry[]>([]);
   let result = $state<Result>(null);
-  // Subscribe to the lang store so the component re-renders when the
-  // language changes. The `$lang` reference here is what wires Svelte's
-  // reactivity — any template `t(...)` call automatically sees the new
-  // language after the store fires.
+  // Mirror the lang store into a local $state so Svelte's reactivity
+  // picks up language flips and re-runs the template. The store fires
+  // on every setLang() — the effect syncs currentLang → `localLang`,
+  // and any template that reads `localLang` (which `t()` calls above
+  // already do, via $lang) gets re-evaluated. We initialise from
+  // getLang() so SSR + first client paint agree.
+  let localLang = $state<Lang>(getLang());
   $effect(() => {
-    void $lang;
+    const unsub = lang.subscribe((v) => { localLang = v; });
+    return unsub;
   });
   let shareState = $state<'idle' | 'copied' | 'error'>('idle');
   // View mode for the results section: a flat list (default) or a grid
@@ -175,20 +179,23 @@
   // case-insensitive). `assignRooms` returns placements in arrival order;
   // sorting is a UI concern, not a data one, so it lives here and the
   // underlying array stays untouched (deterministic fixtures, share hash,
-  // WhatsApp text all keep their original placement order).
+  // Slice 30 (H): list view sorts by person name so the eye groups
+  // alphabetically; grid view sorts by room name (below). The WhatsApp
+  // share text + URL hash payload keep their original placement order.
   const sortedAssigned = $derived(
     result
       ? [...result.assigned].sort((a, b) =>
-          a.room.localeCompare(b.room, undefined, { sensitivity: 'base' }),
+          a.person.localeCompare(b.person, undefined, { sensitivity: 'base' }),
         )
       : [],
   );
 
   // Group assignments by room for the grid view. Each entry: { room,
-  // capacity, people[] }. Unassigned people are kept in a separate
-  // bucket. Rooms are iterated in their existing order (the user-set
-  // order from the room cards), not the sort-by-name order — that way
-  // the grid mirrors the input layout.
+  // capacity, people[] } where `people` is sorted alphabetically by
+  // person name. Rooms are iterated in alphabetical order (slice 30).
+  // Empty rooms are still surfaced when there ARE assignments overall,
+  // so users can see "this room got no one" — but a "no assignments yet"
+  // result keeps everything out of view.
   const roomsWithAssignments = $derived.by(() => {
     if (!result) return [];
     const byRoom = new Map<string, string[]>();
@@ -197,16 +204,18 @@
       const list = byRoom.get(a.room);
       if (list) list.push(a.person);
     }
+    const collator = new Intl.Collator(undefined, { sensitivity: 'base' });
     return rooms
       .filter((r) => (byRoom.get(r.name)?.length ?? 0) > 0 || result.assigned.length > 0)
       .map((r) => ({
         name: r.name,
         capacity: r.capacity,
-        people: byRoom.get(r.name) ?? [],
+        people: (byRoom.get(r.name) ?? []).slice().sort(collator.compare),
         pinned: result.assigned
           .filter((a) => a.room === r.name)
           .some((a) => pinnedNames.has(a.person)),
-      }));
+      }))
+      .sort((a, b) => collator.compare(a.name, b.name));
   });
 
   // Slice 15 (J): global capacity pill. Predictive — answers "is my setup
@@ -808,11 +817,12 @@
 <svelte:window on:keydown={onShareKey} />
 
 <!--
-  Subscribe to the lang store at the top of the template so the whole
-  component re-renders when the language flips. Hidden visually; the
-  sole purpose is to wire Svelte 5's template reactivity to the store.
+  Hidden language tag — referenced so Svelte's reactivity tracks
+  `localLang` (mirrored from the lang store by the $effect above).
+  When the language flips, this tag updates and Svelte re-runs the
+  whole template body, which re-evaluates every `t(...)` call.
 -->
-{#if false}{$lang}{/if}
+<span hidden aria-hidden="true" data-lang={localLang}></span>
 
 <div class="space-y-6">
   <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -1236,26 +1246,37 @@
       {#if result.assigned.length > 0}
         {#if viewMode === 'list'}
           <!--
-            List view: each row is a person with the room name. The room
-            name sits in a forest-tinted pill so the eye groups the room
-            quickly when scrolling. Pinned people get a subtle 🔒 glyph.
+            Slice 33: list view redesigned. Each row is a 3-column grid
+            (person | arrow | room) with a forest accent on the left
+            border. The arrow sits in its own fixed-width column so it
+            always lines up perfectly across rows regardless of how long
+            the person or room name is. The room name sits in a forest
+            pill on the right. Pinned rows get a left accent strip.
           -->
-          <ul class="mt-3 divide-y divide-border/50">
+          <ol class="mt-3 space-y-1.5" role="list">
             {#each sortedAssigned as a (a.person + '|' + a.room)}
-              <li class="flex items-center justify-between gap-3 py-1.5 text-base">
-                <span class="text-fg min-w-0 truncate font-medium">
-                  {a.person}
-                  {#if pinnedNames.has(a.person)}
-                    <span class="text-fg-meta ml-1 text-xs" aria-label="pinned">🔒</span>
-                  {/if}
+              <li
+                class="results-list-row"
+                class:is-pinned={pinnedNames.has(a.person)}
+              >
+                <span class="results-list-row__person">
+                  <span class="results-list-row__avatar" aria-hidden="true">
+                    {a.person.slice(0, 1).toUpperCase()}
+                  </span>
+                  <span class="results-list-row__name">
+                    {a.person}
+                    {#if pinnedNames.has(a.person)}
+                      <span class="results-list-row__pin" aria-label="pinned">🔒</span>
+                    {/if}
+                  </span>
                 </span>
-                <span class="text-fg-meta shrink-0 text-sm" aria-hidden="true">→</span>
-                <span class="results-room-pill font-mono font-semibold">
-                  {a.room}
+                <span class="results-list-row__arrow" aria-hidden="true">→</span>
+                <span class="results-list-row__room">
+                  <span class="results-room-pill">{a.room}</span>
                 </span>
               </li>
             {/each}
-          </ul>
+          </ol>
         {:else}
           <!--
             Grid view: one card per room, with assigned people listed
@@ -1432,6 +1453,102 @@
   .results-view-btn.is-active {
     background-color: var(--accent);
     color: var(--accent-fg, #fafafa);
+  }
+
+  /* ─── List view row (slice 33) ───────────────────────────────────
+   * 3-column grid: person (with avatar) | arrow | room-pill. The
+   * fixed-width arrow column guarantees arrows always line up across
+   * rows regardless of how long the person/room names are.
+   * Pinned rows get an amber left accent stripe. Hover lifts the
+   * card slightly with a forest-tinted shadow. */
+  .results-list-row {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.55rem 0.85rem;
+    background: color-mix(in oklch, var(--bg-elevated) 60%, transparent);
+    border: 1px solid var(--border);
+    border-left: 3px solid transparent;
+    border-radius: 0.5rem;
+    font-size: 0.95rem;
+    transition:
+      transform 150ms var(--ease-out),
+      border-color 150ms var(--ease-out),
+      background-color 150ms var(--ease-out),
+      box-shadow 150ms var(--ease-out);
+  }
+  .results-list-row:hover {
+    border-color: color-mix(in oklch, var(--accent) 40%, var(--border) 60%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px color-mix(in oklch, var(--accent) 12%, transparent);
+  }
+  .results-list-row.is-pinned {
+    border-left-color: var(--accent-2);
+    background: color-mix(in oklch, var(--accent-2) 8%, transparent);
+  }
+
+  .results-list-row__person {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
+  }
+  /* Round monogram avatar — first letter of the person name, in a
+   * forest-tinted circle. Keeps the row visually anchored even if the
+   * name is long. */
+  .results-list-row__avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.7rem;
+    height: 1.7rem;
+    flex-shrink: 0;
+    border-radius: 9999px;
+    background: color-mix(in oklch, var(--accent) 16%, transparent);
+    color: var(--accent);
+    border: 1px solid color-mix(in oklch, var(--accent) 28%, transparent);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.78rem;
+    line-height: 1;
+  }
+  .results-list-row__name {
+    color: var(--fg);
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .results-list-row__pin {
+    margin-left: 0.35rem;
+    font-size: 0.7rem;
+    opacity: 0.85;
+  }
+
+  /* The arrow lives in its own column with a fixed-width container so
+   * it always sits dead-centre between the person and the room. The
+   * chevron icon uses currentColor + a subtle hover-shift so it feels
+   * alive when the row is hovered. */
+  .results-list-row__arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    color: var(--fg-muted);
+    font-size: 0.95rem;
+    transition: transform 150ms var(--ease-out), color 150ms var(--ease-out);
+  }
+  .results-list-row:hover .results-list-row__arrow {
+    color: var(--accent);
+    transform: translateX(2px);
+  }
+
+  .results-list-row__room {
+    display: flex;
+    justify-content: flex-end;
+    min-width: 0;
   }
 
   /* List view: room name in a forest-tinted pill on the right. */
