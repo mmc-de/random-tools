@@ -199,13 +199,12 @@
   }
 
   function prefillBundesliga(): void {
-    console.log('[DEBUG] prefillBundesliga called');
-    console.log('[DEBUG] BUNDESLIGA_OPTIONS:', BUNDESLIGA_OPTIONS.slice(0, 80));
-    console.log('[DEBUG] bucketText before:', bucketText.slice(0, 80));
+    console.log('[DEBUG] prefillBundesliga called, bucketText before:', bucketText.slice(0, 80));
     bucketText = BUNDESLIGA_OPTIONS;
-    console.log('[DEBUG] bucketText after:', bucketText.slice(0, 80));
+    console.log('[DEBUG] after assignment, bucket.length:', bucket.length);
+    // Force a re-render by reading bucket explicitly
+    console.log('[DEBUG] bucket[0]:', bucket[0]);
     history = [];
-    console.log('[DEBUG] bucket length:', bucket.length);
   }
 
   function clearAll(): void {
@@ -400,10 +399,16 @@
   });
 
   // Persist on every state change. v1: simple, no debounce.
+  // Svelte 5 quirk: $effect with `if (!mounted) return` early-out causes
+  // the body to only run once (when mounted flips true), and the
+  // dependencies AFTER the guard are never registered. To make this
+  // effect react to `bucketText` changes, we read `bucketText` BEFORE
+  // the guard so Svelte's reactive graph includes it.
   $effect(() => {
+    const text = bucketText;
     if (!mounted) return;
     try {
-      window.localStorage.setItem(BUCKET_KEY, bucketText);
+      window.localStorage.setItem(BUCKET_KEY, text);
     } catch {
       // ignore
     }
