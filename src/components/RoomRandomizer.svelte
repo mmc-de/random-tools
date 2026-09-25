@@ -3,7 +3,7 @@
   import { fly } from 'svelte/transition';
   import { assignRooms, formatAssignmentForShare, type Pin, type Room } from '~/lib/random';
   import Icon from '~/lib/icons.svelte';
-  import { t, tx, lang, getLang, type Lang } from '~/scripts/i18n';
+  import { t, tx, lang, getLang } from '~/scripts/i18n';
 
   type Assigned = { person: string; room: string };
   type Result = { assigned: Assigned[]; unassigned: string[] } | null;
@@ -64,15 +64,16 @@
   let nextRoomId = $state(0);
   let rooms = $state<RoomEntry[]>([]);
   let result = $state<Result>(null);
-  // Mirror the lang store into a local $state so Svelte's reactivity
-  // picks up language flips and re-runs the template. The store fires
-  // on every setLang() — the effect syncs currentLang → `localLang`,
-  // and any template that reads `localLang` (which `t()` calls above
-  // already do, via $lang) gets re-evaluated. We initialise from
-  // getLang() so SSR + first client paint agree.
-  let localLang = $state<Lang>(getLang());
+  // Language mirror — Svelte 5 runes-mode template auto-subscription
+  // (`$lang`) is rejected by the compiler, so we hand-roll the bridge:
+  // the $effect below subscribes to the lang store and writes the
+  // current value into `langTick`. The template references `langTick`
+  // (via `data-lang={langTick}`) which puts it in Svelte's reactive
+  // dependency graph, so the whole template re-runs whenever the
+  // store fires — which re-evaluates every `t(...)` call.
+  let langTick = $state<'en' | 'de'>(getLang());
   $effect(() => {
-    const unsub = lang.subscribe((v) => { localLang = v; });
+    const unsub = lang.subscribe((v) => { langTick = v; });
     return unsub;
   });
   let shareState = $state<'idle' | 'copied' | 'error'>('idle');
@@ -817,12 +818,12 @@
 <svelte:window on:keydown={onShareKey} />
 
 <!--
-  Hidden language tag — referenced so Svelte's reactivity tracks
-  `localLang` (mirrored from the lang store by the $effect above).
-  When the language flips, this tag updates and Svelte re-runs the
-  whole template body, which re-evaluates every `t(...)` call.
+  Hidden language tag — references `langTick` which is updated by the
+  $effect above whenever the lang store fires. This puts `langTick` in
+  Svelte's reactive graph so the whole template re-runs on language
+  change — which re-evaluates every `t(...)` call.
 -->
-<span hidden aria-hidden="true" data-lang={localLang}></span>
+<span hidden aria-hidden="true" data-lang={langTick}></span>
 
 <div class="space-y-6">
   <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
