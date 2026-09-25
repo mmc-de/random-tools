@@ -3,6 +3,7 @@
   import { fly } from 'svelte/transition';
   import { assignRooms, formatAssignmentForShare, type Pin, type Room } from '~/lib/random';
   import Icon from '~/lib/icons.svelte';
+  import { t, tx, lang } from '~/scripts/i18n';
 
   type Assigned = { person: string; room: string };
   type Result = { assigned: Assigned[]; unassigned: string[] } | null;
@@ -16,10 +17,10 @@
   const STEPPER_MAX = 50;
 
   // Canonical URL for this tool, baked in at build time from astro.config.mjs's
-  // `site:` + `base:` settings. Used to drop a "Open the tool:" link into the
-  // WhatsApp share text so recipients can land straight on the tool. Falls
-  // back to the current origin at runtime (covers dev / unusual build configs
-  // where import.meta.env.SITE might be undefined).
+  // `site:` + `base:` settings. Used in the WhatsApp share text so recipients
+  // can land straight on the tool. Falls back to the current origin at
+  // runtime (covers dev / unusual build configs where import.meta.env.SITE
+  // might be undefined).
   //
   // Note: `BASE_URL` is always normalized to NO trailing slash (e.g. "/random-tools"),
   // so we hard-code the slash between base and the route path.
@@ -33,6 +34,17 @@
         ? `${window.location.origin}/random-tools/room-randomizer/`
         : ''),
   );
+  // Short human-readable label for the WhatsApp footer. The full URL still
+  // ships in the message — messengers won't autolink a bare label — but the
+  // label gives readers a hint of where the link goes before they tap.
+  const toolUrlLabel = $derived.by(() => {
+    try {
+      const u = new URL(toolUrl);
+      return u.hostname.replace(/^www\./, '') + u.pathname;
+    } catch {
+      return '';
+    }
+  });
 
   let mounted = $state(false);
   // People live as an array of cards (slice 11). The persisted shape is still
@@ -52,15 +64,27 @@
   let nextRoomId = $state(0);
   let rooms = $state<RoomEntry[]>([]);
   let result = $state<Result>(null);
+  // Subscribe to the lang store so the component re-renders when the
+  // language changes. The `$lang` reference here is what wires Svelte's
+  // reactivity — any template `t(...)` call automatically sees the new
+  // language after the store fires.
+  $effect(() => {
+    void $lang;
+  });
   let shareState = $state<'idle' | 'copied' | 'error'>('idle');
   // View mode for the results section: a flat list (default) or a grid
   // of cards (one per room, with the assigned people underneath). The
   // WhatsApp share text is identical for both — the toggle only affects
   // what's rendered on the page.
   let viewMode = $state<'list' | 'grid'>('list');
-  // Brief "Sent ✓" feedback after the WhatsApp share opens wa.me. We don't
-  // know whether the user actually sends the message (wa.me opens in a new
-  // tab), so this is purely a visual confirmation that the click landed.
+  // Slice 31: copy-state for the new "Copy results" button inside the
+  // Results section header. Independent of `shareState` (which tracks
+  // the action-bar "Share link" button).
+  let copyResultsState = $state<'idle' | 'copied' | 'error'>('idle');
+  // Slice 31: feedback after the WhatsApp share opens wa.me. We don't
+  // know whether the user actually sends the message (wa.me opens in a
+  // new tab), so this is purely a visual confirmation that the click
+  // landed.
   let whatsappState = $state<'idle' | 'sent'>('idle');
   let shimmering = $state(false);
   let reducedMotion = $state(false);
@@ -199,12 +223,12 @@
   const capacityLabel = $derived.by(() => {
     if (finalPeople.length === 0 || finalRooms.length === 0) return null;
     if (capacityDelta === 0) {
-      return `${finalPeople.length} people · ${totalCapacity} spots · capacity matches`;
+      return tx('rooms.capacity.ok', { p: finalPeople.length, s: totalCapacity });
     }
     if (capacityDelta < 0) {
-      return `${finalPeople.length} people · ${totalCapacity} spots · ${-capacityDelta} free`;
+      return tx('rooms.capacity.under', { p: finalPeople.length, s: totalCapacity, f: -capacityDelta });
     }
-    return `${finalPeople.length} people · ${totalCapacity} spots · ${capacityDelta} will be unassigned`;
+    return tx('rooms.capacity.over', { p: finalPeople.length, s: totalCapacity, u: capacityDelta });
   });
 
   // Slice 15 (J): per-room fill counts. Built from the result.assigned
@@ -606,7 +630,10 @@
   function shareWhatsApp(): void {
     if (typeof window === 'undefined') return;
     if (!result || result.assigned.length === 0) return;
-    const message = formatAssignmentForShare(result, toolUrl);
+    const message = formatAssignmentForShare(result, {
+      url: toolUrl,
+      urlLabel: toolUrlLabel,
+    });
     const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
     const opened = window.open(url, '_blank', 'noopener,noreferrer');
     if (!opened) {
@@ -623,6 +650,42 @@
     window.setTimeout(() => {
       whatsappState = 'idle';
     }, 1500);
+  }
+
+  /**
+   * Copy the WhatsApp-formatted share text to the clipboard. This is
+   * the "Copy results" button inside the Results section — it shares the
+   * same text the WhatsApp button would send, but without opening wa.me.
+   * Useful for pasting into Slack, email, Notion, anywhere.
+   */
+  async function copyResults(): Promise<void> {
+    if (typeof window === 'undefined') return;
+    if (!result || result.assigned.length === 0) return;
+    const message = formatAssignmentForShare(result, {
+      url: toolUrl,
+      urlLabel: toolUrlLabel,
+    });
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(message);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = message;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'absolute';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      copyResultsState = 'copied';
+      window.setTimeout(() => {
+        copyResultsState = 'idle';
+      }, 1500);
+    } catch {
+      copyResultsState = 'error';
+    }
   }
 
   const whatsappDisabled = $derived(!result || result.assigned.length === 0);
@@ -750,7 +813,7 @@
       <div class="text-fg mb-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-2 text-sm font-medium">
         <span class="min-w-0">
           People
-          <span class="text-muted font-normal">(type to rename)</span>
+          <span class="text-muted font-normal">({t('rooms.people.hint')})</span>
         </span>
         <span class="text-muted font-mono text-xs tabular-nums" aria-live="polite">
           {people.length} / {STEPPER_MAX}
@@ -795,7 +858,7 @@
           class="border-border text-fg-muted hover:text-fg hover:border-accent rt-pressable inline-flex min-h-[5rem] items-center justify-center gap-2 rounded-lg border border-dashed bg-transparent px-3 py-2 font-mono text-sm disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Icon name="plus" />
-          <span>Add person</span>
+          <span>{t('rooms.people.add')}</span>
         </button>
       </div>
     </div>
@@ -804,7 +867,7 @@
       <div class="text-fg mb-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-2 text-sm font-medium">
         <span class="min-w-0">
           Rooms
-          <span class="text-muted font-normal">(type to rename)</span>
+          <span class="text-muted font-normal">({t('rooms.rooms.hint')})</span>
         </span>
         <span class="text-muted font-mono text-xs tabular-nums" aria-live="polite">
           {rooms.length} / {STEPPER_MAX}
@@ -845,14 +908,14 @@
 
             <div class="mt-3 flex items-center justify-between gap-2">
               <span class="text-fg-muted text-xs font-medium uppercase tracking-wide">
-                Capacity
+                {t('rooms.rooms.capacity')}
               </span>
               <span class="inline-flex items-center gap-1" role="group" aria-label={`Capacity for ${(room.name ?? '').trim() || placeholder}`}>
                 <button
                   type="button"
                   onclick={() => bumpCapacity(room.id, -1)}
                   disabled={(room.capacity ?? 1) <= 1}
-                  aria-label="Decrease capacity"
+                  aria-label={t('rooms.rooms.capacity.decrease')}
                   class="text-fg-muted hover:text-fg hover:bg-bg-hover rt-pressable inline-flex h-8 w-8 items-center justify-center rounded-full text-base leading-none disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                 >
                   −
@@ -868,7 +931,7 @@
                   type="button"
                   onclick={() => bumpCapacity(room.id, +1)}
                   disabled={(room.capacity ?? 1) >= STEPPER_MAX}
-                  aria-label="Increase capacity"
+                  aria-label={t('rooms.rooms.capacity.increase')}
                   class="text-fg-muted hover:text-fg hover:bg-bg-hover rt-pressable inline-flex h-8 w-8 items-center justify-center rounded-full text-base leading-none disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                 >
                   +
@@ -914,7 +977,7 @@
           class="border-border text-fg-muted hover:text-fg hover:border-accent rt-pressable inline-flex min-h-[6rem] items-center justify-center gap-2 rounded-lg border border-dashed bg-transparent px-3 py-2 font-mono text-sm disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Icon name="plus" />
-          <span>Add room</span>
+          <span>{t('rooms.rooms.add')}</span>
         </button>
       </div>
     </div>
@@ -924,16 +987,16 @@
     <section aria-label="Pre-assigned pins" class="border-border rounded-xl border p-4 sm:p-6">
       <div class="flex items-center justify-between gap-2">
         <h2 class="text-accent-2 font-mono text-sm font-semibold uppercase tracking-wide">
-          Pre-assigned pins
+          {t('rooms.pins.header')}
         </h2>
         {#if pins.length > 0}
           <button
             type="button"
             onclick={clearPins}
             class="text-muted hover:text-fg rt-pressable text-xs"
-            aria-label="Clear all pins"
+            aria-label={t('rooms.pins.clear')}
           >
-            Clear pins
+            {t('rooms.pins.clear')}
           </button>
         {/if}
       </div>
@@ -954,7 +1017,7 @@
                 style="font-size: 16px"
                 aria-label="Pinned person"
               >
-                <option value="">— pick person —</option>
+                <option value="">{t('rooms.pins.person.placeholder')}</option>
                 {#each finalPeople as person (person)}
                   {#if !usedNames.has(person) || person === row.person}
                     <option value={person}>{person}</option>
@@ -969,7 +1032,7 @@
                 style="font-size: 16px"
                 aria-label="Pinned room"
               >
-                <option value="">— pick room —</option>
+                <option value="">{t('rooms.pins.room.placeholder')}</option>
                 {#each finalRooms as room (room.name)}
                   <option value={room.name}>{room.name}</option>
                 {/each}
@@ -995,14 +1058,14 @@
         class="border-border text-fg-muted hover:text-fg hover:border-accent rt-pressable mt-3 inline-flex w-full min-h-[3rem] items-center justify-center gap-2 rounded-lg border border-dashed bg-transparent px-3 py-2 font-mono text-sm disabled:cursor-not-allowed disabled:opacity-40"
       >
         <Icon name="plus" />
-        <span>Add pin</span>
+        <span>{t('rooms.pins.add')}</span>
       </button>
     </section>
   {:else if finalPeople.length > 0}
     <section aria-label="Pre-assigned pins" class="border-border rounded-xl border p-4 sm:p-6">
       <div class="flex items-center justify-between gap-2">
         <h2 class="text-accent-2 font-mono text-sm font-semibold uppercase tracking-wide">
-          Pre-assigned pins
+          {t('rooms.pins.header')}
         </h2>
       </div>
       <p class="text-muted mt-3 text-sm">
@@ -1059,7 +1122,7 @@
         class="bg-accent text-accent-fg hover:opacity-90 rt-pressable inline-flex min-h-[44px] items-center gap-2 rounded-lg px-4 py-2.5 font-medium"
       >
         <Icon name="shuffle" />
-        <span>Shuffle</span>
+        <span>{t('rooms.actions.shuffle')}</span>
       </button>
       <button
         type="button"
@@ -1067,44 +1130,28 @@
         class="border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[44px] items-center gap-2 rounded-lg border bg-transparent px-4 py-2.5 font-medium"
       >
         <Icon name="trash" />
-        <span>Clear</span>
+        <span>{t('rooms.actions.clear')}</span>
       </button>
       <button
         type="button"
         onclick={share}
         class="border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[44px] items-center gap-2 rounded-lg border bg-transparent px-4 py-2.5 font-medium"
-        aria-label="Copy shareable link"
+        aria-label={t('rooms.actions.copy')}
         aria-live="polite"
       >
         {#if shareState === 'copied'}
           <Icon name="check" class="h-4 w-4 text-accent" />
-          <span>Copied!</span>
+          <span>{t('rooms.actions.copied')}</span>
         {:else if shareState === 'error'}
-          <span>Copy failed</span>
+          <span>{t('rooms.actions.copyFailed')}</span>
         {:else}
           <Icon name="link" />
-          <span>Share link</span>
-        {/if}
-      </button>
-      <button
-        type="button"
-        onclick={shareWhatsApp}
-        disabled={whatsappDisabled}
-        title="Send via WhatsApp"
-        class="border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[44px] items-center gap-2 rounded-lg border bg-transparent px-4 py-2.5 font-medium disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border"
-        aria-label="Share results via WhatsApp"
-      >
-        {#if whatsappState === 'sent'}
-          <Icon name="check" class="h-4 w-4 text-accent" />
-          <span>Sent!</span>
-        {:else}
-          <Icon name="whatsapp" class="h-[18px] w-[18px]" />
-          <span>Share via WhatsApp</span>
+          <span>{t('rooms.actions.copy')}</span>
         {/if}
       </button>
       <span class="text-muted text-xs" aria-live="polite">
         {#if result}
-          {result.assigned.length} assigned{#if result.unassigned.length > 0}, {result.unassigned.length} unassigned{/if}
+          {tx('rooms.results.count', { a: result.assigned.length })}{#if result.unassigned.length > 0}, {tx('rooms.results.unassigned.count', { u: result.unassigned.length })}{/if}
         {/if}
       </span>
     </div>
@@ -1117,39 +1164,65 @@
       class:shimmering
     >
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <h2 class="text-fg text-lg font-semibold">Results</h2>
-        <!--
-          View-mode toggle: list (default) or grid. Pure display — the
-          WhatsApp share text is unchanged. Uses the same compact-pill
-          style as the bucket-draw mode toggle (slice 21).
-        -->
-        <div
-          role="group"
-          aria-label="Results view"
-          class="border-border inline-flex items-center rounded-full border bg-bg-elevated p-0.5"
-        >
+        <h2 class="text-fg text-lg font-semibold">{t('rooms.results.title')}</h2>
+        <div class="flex flex-wrap items-center gap-2">
+          <!--
+            Slice 31: Copy-results button. Copies the WhatsApp-formatted
+            share text (with `generated by` URL footer) to the clipboard.
+            Lives in the results header so it's right next to the data
+            it copies, not buried in the action bar above the inputs.
+          -->
           <button
             type="button"
-            class="results-view-btn"
-            class:is-active={viewMode === 'list'}
-            aria-pressed={viewMode === 'list'}
-            onclick={() => (viewMode = 'list')}
-            title="Show as a list"
+            onclick={copyResults}
+            disabled={whatsappDisabled}
+            class="border-border text-fg hover:border-accent rt-pressable inline-flex min-h-[36px] items-center gap-2 rounded-lg border bg-transparent px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border"
+            aria-label={t('rooms.results.copy')}
+            aria-live="polite"
           >
-            <span aria-hidden="true">≡</span>
-            <span class="sr-only">List view</span>
+            {#if copyResultsState === 'copied'}
+              <Icon name="check" class="h-4 w-4 text-accent" />
+              <span>{t('rooms.results.copied')}</span>
+            {:else if copyResultsState === 'error'}
+              <span>{t('rooms.results.copyFailed')}</span>
+            {:else}
+              <Icon name="link" />
+              <span>{t('rooms.results.copy')}</span>
+            {/if}
           </button>
-          <button
-            type="button"
-            class="results-view-btn"
-            class:is-active={viewMode === 'grid'}
-            aria-pressed={viewMode === 'grid'}
-            onclick={() => (viewMode = 'grid')}
-            title="Show as a grid of cards"
+          <!--
+            View-mode toggle: list (default) or grid. Pure display — the
+            WhatsApp share text is unchanged. Uses the same compact-pill
+            style as the bucket-draw mode toggle (slice 21).
+          -->
+          <div
+            role="group"
+            aria-label={t('rooms.results.title')}
+            class="border-border inline-flex items-center rounded-full border bg-bg-elevated p-0.5"
           >
-            <span aria-hidden="true">▦</span>
-            <span class="sr-only">Grid view</span>
-          </button>
+            <button
+              type="button"
+              class="results-view-btn"
+              class:is-active={viewMode === 'list'}
+              aria-pressed={viewMode === 'list'}
+              onclick={() => (viewMode = 'list')}
+              title={t('rooms.results.list')}
+            >
+              <span aria-hidden="true">≡</span>
+              <span class="sr-only">{t('rooms.results.list')}</span>
+            </button>
+            <button
+              type="button"
+              class="results-view-btn"
+              class:is-active={viewMode === 'grid'}
+              aria-pressed={viewMode === 'grid'}
+              onclick={() => (viewMode = 'grid')}
+              title={t('rooms.results.grid')}
+            >
+              <span aria-hidden="true">▦</span>
+              <span class="sr-only">{t('rooms.results.grid')}</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1203,7 +1276,7 @@
                     {/each}
                   </ul>
                 {:else}
-                  <p class="results-room-card__empty">No one assigned.</p>
+                  <p class="results-room-card__empty">{t('rooms.results.card.empty')}</p>
                 {/if}
               </article>
             {/each}
@@ -1216,7 +1289,7 @@
       {#if result.unassigned.length > 0}
         <div class="mt-5">
           <h3 class="text-fg-muted text-sm font-semibold uppercase tracking-wide">
-            Unassigned
+            {t('rooms.results.unassigned')}
           </h3>
           <ul class="text-fg-muted mt-2 space-y-1 text-base">
             {#each result.unassigned as person (person)}
@@ -1225,6 +1298,30 @@
           </ul>
         </div>
       {/if}
+
+      <!--
+        Slice 31: WhatsApp share button lives below the results, not in
+        the action bar above the inputs. It opens wa.me with the same
+        formatted text the Copy button copies.
+      -->
+      <div class="results-share-row mt-5 flex justify-end border-t border-border/50 pt-4">
+        <button
+          type="button"
+          onclick={shareWhatsApp}
+          disabled={whatsappDisabled}
+          title={t('rooms.results.whatsapp')}
+          class="bg-accent text-accent-fg hover:opacity-90 rt-pressable inline-flex min-h-[44px] items-center gap-2 rounded-lg px-4 py-2.5 font-medium disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label={t('rooms.results.whatsapp')}
+        >
+          {#if whatsappState === 'sent'}
+            <Icon name="check" class="h-4 w-4" />
+            <span>{t('rooms.results.whatsapp.sent')}</span>
+          {:else}
+            <Icon name="whatsapp" class="h-[18px] w-[18px]" />
+            <span>{t('rooms.results.whatsapp')}</span>
+          {/if}
+        </button>
+      </div>
     </section>
   {/if}
 </div>

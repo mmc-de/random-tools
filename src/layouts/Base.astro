@@ -1,6 +1,7 @@
 ---
 import "~/styles/global.css";
 import ThemeToggle from "~/components/ThemeToggle.svelte";
+import LanguageToggle from "~/components/LanguageToggle.svelte";
 
 interface Props {
   title?: string;
@@ -21,8 +22,9 @@ const {
     <meta name="generator" content={Astro.generator} />
     <meta name="description" content={description} />
     <title>{title}</title>
-    {/* Runs synchronously in <head> so data-theme is set BEFORE body paints.
-        Using is:inline to bypass Astro's default module/async wrapping. */}
+    {/* Runs synchronously in <head> so data-theme + initial language are
+        set BEFORE body paints. Using is:inline to bypass Astro's default
+        module/async wrapping. */}
     <script is:inline>
       (function () {
         try {
@@ -34,6 +36,16 @@ const {
                 ? "light"
                 : "dark";
           document.documentElement.setAttribute("data-theme", theme);
+
+          // Prime the language before components mount so the first paint
+          // already shows the right strings (no EN→DE flash).
+          var storedLang = localStorage.getItem("random-tools:lang");
+          var lang = storedLang === "de" || storedLang === "en"
+            ? storedLang
+            : (navigator.language || "en").toLowerCase().startsWith("de")
+              ? "de"
+              : "en";
+          document.documentElement.setAttribute("data-lang", lang);
         } catch (_) {
           /* localStorage may be blocked (private mode); fall through
              to the CSS @media (prefers-color-scheme) default. */
@@ -43,15 +55,19 @@ const {
   </head>
   <body class="bg-bg text-fg font-body">
     <slot />
-    <div class="theme-toggle-slot">
+    <div class="topbar-slot">
+      <LanguageToggle client:load />
       <ThemeToggle client:load />
     </div>
     <style>
-      .theme-toggle-slot {
+      .topbar-slot {
         position: fixed;
         top: max(1rem, env(safe-area-inset-top));
         right: max(1rem, env(safe-area-inset-right));
         z-index: 60;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
       }
     </style>
   </body>

@@ -1,16 +1,17 @@
 ---
 import Base from "~/layouts/Base.astro";
+import { t } from "~/scripts/i18n";
 
 const tools = [
   {
     href: "/random-tools/room-randomizer/",
-    title: "Room randomizer",
-    description: "Assign a list of people to rooms, randomly, honoring capacity.",
+    titleKey: "home.rooms.title",
+    descKey: "home.rooms.subtitle",
   },
   {
     href: "/random-tools/draw/",
-    title: "Bucket draw",
-    description: "Pick one option from a bucket. With or without replacement.",
+    titleKey: "home.draw.title",
+    descKey: "home.draw.subtitle",
   },
 ];
 ---
@@ -20,7 +21,7 @@ const tools = [
     <div class="mx-auto max-w-2xl">
       <h1 class="text-3xl font-semibold tracking-tight">random-tools</h1>
       <p class="text-muted mt-2 text-base sm:text-lg">
-        Two tiny tools. No accounts. No tracking. Works offline once loaded.
+        {t('home.subtitle') ?? 'Two tiny tools. No accounts. No tracking. Works offline once loaded.'}
       </p>
 
       <div class="mt-10 grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -30,8 +31,8 @@ const tools = [
               href={tool.href}
               class="group border-border rounded-xl border p-6 transition-colors hover:border-accent"
             >
-              <h2 class="text-xl font-semibold">{tool.title}</h2>
-              <p class="text-muted mt-1 text-sm">{tool.description}</p>
+              <h2 class="text-xl font-semibold">{t(tool.titleKey)}</h2>
+              <p class="text-muted mt-1 text-sm">{t(tool.descKey)}</p>
               <span class="text-accent mt-4 inline-block text-sm font-medium">
                 Open →
               </span>
@@ -41,7 +42,7 @@ const tools = [
       </div>
 
       <footer class="text-muted mt-12 text-xs">
-        <span aria-hidden="true">⚡ </span>Built with Astro + Svelte. State stays in your browser.
+        <span aria-hidden="true">⚡ </span>{t('home.footer')}
       </footer>
     </div>
   </main>
